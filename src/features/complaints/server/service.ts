@@ -46,22 +46,27 @@ export async function submitComplaint(
   const supabase = getSupabaseAdmin();
   const requestHash = computePayloadHash(draft, context.sessionId);
 
-  // 1. Periksa Kunci Idempotensi untuk mencegah pengiriman ganda
+  // 1. Periksa Kunci Idempotensi langsung di tabel complaint
   if (context.idempotencyKey) {
     if (context.idempotencyKey.length > 128 || !/^[a-zA-Z0-9_\-.:]+$/.test(context.idempotencyKey)) {
       throw new Error('INVALID_IDEMPOTENCY_KEY');
     }
 
-    const { data: existingKey, error: keyErr } = await supabase
-      .from('idempotency_keys')
-      .select('request_hash, response_data, expires_at')
-      .eq('key', context.idempotencyKey)
+    const { data: existing, error: keyErr } = await supabase
+      .from('complaint')
+      .select('id, ticket_number, status, created_at, request_hash')
+      .eq('idempotency_key', context.idempotencyKey)
       .maybeSingle();
 
-    if (!keyErr && existingKey) {
-      if (existingKey.request_hash === requestHash && existingKey.response_data) {
+    if (!keyErr && existing) {
+      if (existing.request_hash === requestHash) {
         // Idempotent hit: kembalikan receipt yang sama
-        return existingKey.response_data as unknown as SubmissionReceipt;
+        return {
+          complaintId: existing.id,
+          ticketNumber: existing.ticket_number,
+          status: existing.status as ComplaintStatus,
+          createdAt: existing.created_at,
+        };
       }
       // Payload berbeda dengan key yang sama -> Lempar konflik idempotensi
       throw new Error('IDEMPOTENCY_CONFLICT');
@@ -86,11 +91,13 @@ export async function submitComplaint(
   // 3. Generate tiket 6 digit unik
   let ticketNumber = generateTicketNumber();
 
-  // 4. Simpan ke tabel complaints (tanpa access_code_hash)
+  // 4. Simpan ke tabel complaint (5 tabel revisi 003)
   const { data: inserted, error: insertError } = await supabase
-    .from('complaints')
+    .from('complaint')
     .insert({
       ticket_number: ticketNumber,
+      idempotency_key: context.idempotencyKey || null,
+      request_hash: requestHash,
       reporter_whatsapp: normalizedWa, // Disimpan di kolom terproteksi, tidak diekspos ke admin
       description: sanitizedDescription,
       category,
@@ -107,9 +114,11 @@ export async function submitComplaint(
     if (insertError?.code === '23505') {
       ticketNumber = generateTicketNumber();
       const retry = await supabase
-        .from('complaints')
+        .from('complaint')
         .insert({
           ticket_number: ticketNumber,
+          idempotency_key: context.idempotencyKey || null,
+          request_hash: requestHash,
           reporter_whatsapp: normalizedWa,
           description: sanitizedDescription,
           category,
@@ -139,18 +148,6 @@ export async function submitComplaint(
     createdAt: finalRecord.created_at,
   };
 
-  // 5. Simpan receipt ke tabel idempotency_keys
-  if (context.idempotencyKey) {
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await supabase.from('idempotency_keys').insert({
-      key: context.idempotencyKey,
-      operation: 'SUBMIT_COMPLAINT',
-      request_hash: requestHash,
-      response_data: receipt as unknown as Record<string, unknown>,
-      expires_at: expiresAt,
-    });
-  }
-
   return receipt;
 }
 
@@ -170,7 +167,7 @@ export async function trackComplaint(
 
   // 1. Ambil data aduan berdasarkan nomor tiket 6 digit
   const { data: complaint, error: compErr } = await supabase
-    .from('complaints')
+    .from('complaint')
     .select('id, ticket_number, ai_summary, status')
     .eq('ticket_number', normalizedTicket)
     .maybeSingle();
@@ -180,9 +177,9 @@ export async function trackComplaint(
     throw new Error('TICKET_NOT_FOUND');
   }
 
-  // 2. Ambil riwayat pembaruan status
+  // 2. Ambil riwayat pembaruan status dari tabel evidence
   const { data: updates } = await supabase
-    .from('complaint_updates')
+    .from('evidence')
     .select('status, note, created_at')
     .eq('complaint_id', complaint.id)
     .order('created_at', { ascending: true });

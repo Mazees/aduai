@@ -69,7 +69,7 @@ export async function getDashboardCounts(): Promise<{
 }> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
-    .from('complaints')
+    .from('complaint')
     .select('status');
 
   if (error || !data) {
@@ -114,7 +114,7 @@ export async function listComplaints(params: {
   const offset = (page - 1) * limit;
 
   let query = supabase
-    .from('complaints')
+    .from('complaint')
     .select('id, ticket_number, category, ai_summary, status, created_at', { count: 'exact' });
 
   if (params.status) {
@@ -159,7 +159,7 @@ export async function getComplaintDetail(id: string): Promise<AdminComplaintDeta
 
   // 1. Ambil data aduan tanpa field reporter_whatsapp
   const { data: complaint, error: compErr } = await supabase
-    .from('complaints')
+    .from('complaint')
     .select('id, ticket_number, description, category, ai_summary, status, created_at')
     .eq('id', id)
     .maybeSingle();
@@ -168,38 +168,28 @@ export async function getComplaintDetail(id: string): Promise<AdminComplaintDeta
     return null;
   }
 
-  // 2. Ambil riwayat pembaruan status
-  const { data: updates, error: updateErr } = await supabase
-    .from('complaint_updates')
-    .select('id, status, note, rejection_reason, created_at')
+  // 2. Ambil riwayat pembaruan status & bukti dari tabel evidence (5 tabel Revisi 003)
+  const { data: evidenceList, error: evErr } = await supabase
+    .from('evidence')
+    .select('id, status, note, storage_path, file_name, mime_type, size_bytes, created_at')
     .eq('complaint_id', id)
     .order('created_at', { ascending: true });
 
-  const updateList = updates || [];
-
-  // 3. Ambil bukti untuk masing-masing update
-  const formattedUpdates = await Promise.all(
-    updateList.map(async (u: any) => {
-      const { data: evidence } = await supabase
-        .from('update_evidence')
-        .select('id, file_name, mime_type, size_bytes')
-        .eq('complaint_update_id', u.id);
-
-      return {
-        id: u.id,
-        status: u.status as ComplaintStatus,
-        note: u.note,
-        rejectionReason: u.rejection_reason,
-        createdAt: u.created_at,
-        evidence: (evidence || []).map((e: any) => ({
-          id: e.id,
-          fileName: e.file_name,
-          mimeType: e.mime_type,
-          sizeBytes: Number(e.size_bytes),
-        })),
-      };
-    })
-  );
+  const formattedUpdates = (evidenceList || []).map((e: any) => ({
+    id: e.id,
+    status: e.status as ComplaintStatus,
+    note: e.note,
+    rejectionReason: e.status === 'REJECTED' ? e.note : null,
+    createdAt: e.created_at,
+    evidence: [
+      {
+        id: e.id,
+        fileName: e.file_name,
+        mimeType: e.mime_type,
+        sizeBytes: Number(e.size_bytes),
+      },
+    ],
+  }));
 
   return {
     id: complaint.id,
@@ -222,22 +212,9 @@ export async function updateComplaintStatus(
 ): Promise<UpdateComplaintResult> {
   const supabase = getSupabaseAdmin();
 
-  // 1. Idempotensi
-  if (input.idempotencyKey) {
-    const { data: existing } = await supabase
-      .from('idempotency_keys')
-      .select('response_data')
-      .eq('key', input.idempotencyKey)
-      .maybeSingle();
-
-    if (existing?.response_data) {
-      return existing.response_data as unknown as UpdateComplaintResult;
-    }
-  }
-
-  // 2. Ambil status saat ini
+  // 1. Ambil status saat ini dari tabel complaint
   const { data: current, error: getErr } = await supabase
-    .from('complaints')
+    .from('complaint')
     .select('id, status')
     .eq('id', input.complaintId)
     .maybeSingle();
@@ -249,7 +226,7 @@ export async function updateComplaintStatus(
   const currentStatus = current.status as ComplaintStatus;
   const targetStatus = input.targetStatus;
 
-  // 3. Validasi Transisi Status Bisnis
+  // 2. Validasi Transisi Status Bisnis
   const allowed = ALLOWED_STATUS_TRANSITIONS[currentStatus] || [];
   if (!allowed.includes(targetStatus)) {
     throw new Error(
@@ -257,19 +234,23 @@ export async function updateComplaintStatus(
     );
   }
 
-  // 4. Validasi Bukti Wajib: Minimal 1 foto/dokumen bukti
+  // 3. Validasi Bukti Wajib: Minimal 1 foto/dokumen bukti
   if (!input.files || input.files.length === 0) {
     throw new Error('EVIDENCE_REQUIRED: Perubahan status wajib menyertakan minimal satu file bukti');
   }
 
-  // 5. Validasi Alasan Penolakan jika status REJECTED
+  // 4. Validasi Alasan Penolakan jika status REJECTED
   if (targetStatus === 'REJECTED') {
     if (!input.rejectionReason || !input.rejectionReason.trim()) {
       throw new Error('REJECTION_REASON_REQUIRED: Status penolakan (REJECTED) wajib menyertakan alasan penolakan');
     }
   }
 
-  // 6. Unggah file bukti ke Supabase Storage (bucket: 'evidence')
+  const fullNote = targetStatus === 'REJECTED'
+    ? (input.rejectionReason ? `Alasan: ${input.rejectionReason.trim()}${input.note ? `. ${input.note.trim()}` : ''}` : input.note?.trim() || null)
+    : input.note?.trim() || null;
+
+  // 5. Unggah file bukti ke Supabase Storage (bucket: 'evidence')
   const uploadedEvidenceRecords: {
     storageKey: string;
     fileName: string;
@@ -305,40 +286,28 @@ export async function updateComplaintStatus(
     });
   }
 
-  // 7. Simpan record complaint_updates
-  const { data: updateRecord, error: updateErr } = await supabase
-    .from('complaint_updates')
-    .insert({
-      complaint_id: input.complaintId,
-      admin_id: input.adminId,
-      status: targetStatus,
-      note: input.note?.trim() || null,
-      rejection_reason: targetStatus === 'REJECTED' ? input.rejectionReason?.trim() || null : null,
-    })
-    .select('id, complaint_id, status, note, created_at')
-    .single();
-
-  if (updateErr || !updateRecord) {
-    throw new Error(`DATABASE_UPDATE_FAILED: ${updateErr?.message}`);
-  }
-
-  // 8. Simpan metadata bukti ke tabel update_evidence
+  // 6. Simpan rekaman ke tabel evidence (5 tabel Revisi 003)
   const evidenceResponses: { id: string; fileName: string; mimeType: string }[] = [];
+  let primaryEvidenceId: string = crypto.randomUUID();
 
   for (const record of uploadedEvidenceRecords) {
     const { data: evInserted, error: evErr } = await supabase
-      .from('update_evidence')
+      .from('evidence')
       .insert({
-        complaint_update_id: updateRecord.id,
-        storage_key: record.storageKey,
+        complaint_id: input.complaintId,
+        status: targetStatus,
+        note: fullNote,
+        storage_path: record.storageKey,
         file_name: record.fileName,
         mime_type: record.mimeType,
         size_bytes: record.sizeBytes,
+        created_by: input.adminId || null,
       })
       .select('id, file_name, mime_type')
       .single();
 
     if (!evErr && evInserted) {
+      primaryEvidenceId = evInserted.id;
       evidenceResponses.push({
         id: evInserted.id,
         fileName: evInserted.file_name,
@@ -347,43 +316,24 @@ export async function updateComplaintStatus(
     }
   }
 
-  // 9. Perbarui status laporan di tabel complaints
+  // 7. Perbarui status laporan di tabel complaint
   await supabase
-    .from('complaints')
+    .from('complaint')
     .update({
       status: targetStatus,
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.complaintId);
 
-  // 10. Buat entri antrean notifikasi WhatsApp dengan status PENDING
-  await supabase.from('notifications').insert({
-    complaint_update_id: updateRecord.id,
-    status: 'PENDING',
-    attempt_count: 0,
-  });
-
   const result: UpdateComplaintResult = {
-    id: updateRecord.id,
-    complaintId: updateRecord.complaint_id,
-    status: updateRecord.status as ComplaintStatus,
-    note: updateRecord.note,
+    id: primaryEvidenceId,
+    complaintId: input.complaintId,
+    status: targetStatus,
+    note: fullNote,
     evidence: evidenceResponses,
     notificationStatus: 'PENDING',
-    createdAt: updateRecord.created_at,
+    createdAt: new Date().toISOString(),
   };
-
-  // 11. Simpan kunci idempotensi
-  if (input.idempotencyKey) {
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await supabase.from('idempotency_keys').insert({
-      key: input.idempotencyKey,
-      operation: 'UPDATE_COMPLAINT_STATUS',
-      request_hash: crypto.createHash('sha256').update(JSON.stringify(result)).digest('hex'),
-      response_data: result as unknown as Record<string, unknown>,
-      expires_at: expiresAt,
-    });
-  }
 
   return result;
 }

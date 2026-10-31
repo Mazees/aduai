@@ -30,7 +30,7 @@ export interface SubmissionReceipt {
   complaintId: string;
   ticketNumber: string; // Nomor tiket 6 digit
   accessCode?: string;  // Opsional: pelacakan publik kini cukup menggunakan nomor tiket
-  status: "NEW";
+  status: ComplaintStatus;
   createdAt: string;
 }
 

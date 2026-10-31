@@ -11,17 +11,16 @@ export async function readProviderConfig(): Promise<ProviderConfig> {
   try {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
-      .from('ai_provider_settings')
-      .select('endpoint, model, api_key_ciphertext')
-      .order('updated_at', { ascending: false })
-      .limit(1)
+      .from('configuration')
+      .select('ai_endpoint, ai_model, ai_api_key_ciphertext')
+      .eq('id', 'default')
       .maybeSingle();
 
-    if (!error && data && data.endpoint && data.model && data.api_key_ciphertext) {
-      const apiKey = decryptSecret(data.api_key_ciphertext);
+    if (!error && data && data.ai_endpoint && data.ai_model && data.ai_api_key_ciphertext) {
+      const apiKey = decryptSecret(data.ai_api_key_ciphertext);
       return {
-        endpoint: data.endpoint,
-        model: data.model,
+        endpoint: data.ai_endpoint,
+        model: data.ai_model,
         apiKey,
       };
     }
@@ -46,10 +45,9 @@ export async function getMainKnowledge(signal?: AbortSignal): Promise<string> {
   try {
     const supabase = getSupabaseAdmin();
     const { data } = await supabase
-      .from('ai_provider_settings')
+      .from('configuration')
       .select('main_knowledge')
-      .order('updated_at', { ascending: false })
-      .limit(1)
+      .eq('id', 'default')
       .maybeSingle();
 
     return data?.main_knowledge || '';
@@ -59,7 +57,7 @@ export async function getMainKnowledge(signal?: AbortSignal): Promise<string> {
 }
 
 /**
- * Menyimpan atau memperbarui konfigurasi AI Provider
+ * Menyimpan atau memperbarui konfigurasi AI Provider ke tabel configuration
  */
 export async function saveProviderConfig(config: {
   endpoint: string;
@@ -70,29 +68,14 @@ export async function saveProviderConfig(config: {
   const supabase = getSupabaseAdmin();
   const ciphertext = encryptSecret(config.apiKey);
 
-  const { data: existing } = await supabase
-    .from('ai_provider_settings')
-    .select('id')
-    .limit(1)
-    .maybeSingle();
-
-  if (existing) {
-    await supabase
-      .from('ai_provider_settings')
-      .update({
-        endpoint: config.endpoint,
-        model: config.model,
-        api_key_ciphertext: ciphertext,
-        updated_by: config.adminId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existing.id);
-  } else {
-    await supabase.from('ai_provider_settings').insert({
-      endpoint: config.endpoint,
-      model: config.model,
-      api_key_ciphertext: ciphertext,
-      updated_by: config.adminId,
+  await supabase
+    .from('configuration')
+    .upsert({
+      id: 'default',
+      ai_endpoint: config.endpoint,
+      ai_model: config.model,
+      ai_api_key_ciphertext: ciphertext,
+      updated_by: config.adminId || null,
+      updated_at: new Date().toISOString(),
     });
-  }
 }

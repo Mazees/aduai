@@ -19,8 +19,8 @@ export async function GET(
 
     const supabase = getSupabaseAdmin();
     const { data: evidence, error: evErr } = await supabase
-      .from('update_evidence')
-      .select('id, storage_key, file_name, mime_type, size_bytes')
+      .from('evidence')
+      .select('id, storage_path, file_name, mime_type, size_bytes')
       .eq('id', id)
       .maybeSingle();
 
@@ -31,7 +31,7 @@ export async function GET(
     // Buat Signed URL berumur pendek (10 menit) untuk akses aman privat
     const { data: signedData, error: signErr } = await supabase.storage
       .from('evidence')
-      .createSignedUrl(evidence.storage_key, 60 * 10);
+      .createSignedUrl(evidence.storage_path, 60 * 10);
 
     if (signErr || !signedData?.signedUrl) {
       return ApiErrors.internal('Gagal membuat tautan unduhan bukti');
