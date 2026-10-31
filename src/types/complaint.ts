@@ -25,12 +25,11 @@ export const ALLOWED_STATUS_TRANSITIONS: Readonly<
   REJECTED: [],
 };
 
-
 // Receipt hanya dibuat adapter penyimpanan setelah laporan benar-benar tersimpan.
 export interface SubmissionReceipt {
   complaintId: string;
-  ticketNumber: string;
-  accessCode: string;
+  ticketNumber: string; // Nomor tiket 6 digit
+  accessCode?: string;  // Opsional: pelacakan publik kini cukup menggunakan nomor tiket
   status: "NEW";
   createdAt: string;
 }
@@ -40,7 +39,7 @@ export interface SubmissionContext {
   idempotencyKey: string;
 }
 
-// Hasil publik sesudah tiket dan kode akses diverifikasi backend.
+// Hasil publik sesudah tiket diverifikasi backend.
 export interface ComplaintTrackingResult {
   ticketNumber: string;
   status: ComplaintStatus;
