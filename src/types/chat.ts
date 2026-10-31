@@ -3,6 +3,7 @@ import type { ComplaintDraft } from "./complaint";
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  attachments?: { name: string; type: string; url?: string }[];
 }
 
 export type AgentStep =
@@ -41,4 +42,3 @@ export type ChatStreamEvent =
       event: "error";
       data: StreamBase & { code: string; message: string; retryable: boolean };
     };
-
