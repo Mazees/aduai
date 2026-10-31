@@ -28,9 +28,9 @@ Mada dan Dimas menyepakati fungsi agent dan format input/output; Cahya dan Dimas
 | Route | Akses | Fungsi |
 |---|---|---|
 | `/` | Publik | Beranda. |
-| `/aduan/buat` | Guest | Percakapan, draft, konfirmasi, dan hasil tiket; dapat memakai langkah dalam satu halaman. |
-| `/lacak` | Guest | Form tiket dan kode akses. |
-| `/lacak/[ticket]` | Guest terverifikasi | Status dan riwayat yang diizinkan. |
+| `/laporan/chat` | Guest | Percakapan penuh, konfirmasi dalam chat, dan layar hasil tiket. |
+| `/laporan/lacak` | Guest | Form nomor tiket. |
+| `/laporan/lacak/[ticket]` | Guest | Status dan riwayat yang diizinkan berdasarkan nomor tiket. |
 | `/admin/login` | Publik | Login admin. |
 | `/admin/dashboard` | Admin | Jumlah laporan per status. |
 | `/admin/aduan` | Admin | Daftar dan filter laporan. |
@@ -61,7 +61,7 @@ Setiap transisi admin wajib menyertakan minimal satu foto atau dokumen sebagai b
 - Validasi input di server, misalnya menggunakan Zod. Jangan mengandalkan validasi frontend atau hasil AI sebagai otorisasi.
 - Nomor WhatsApp dinormalisasi ke format E.164. Contoh pada dokumen bersifat ilustrasi.
 - `Idempotency-Key` berupa UUID acak wajib pada pembuatan laporan dan perubahan status. Key yang sama dan payload yang sama mengembalikan hasil sebelumnya; key yang sama dengan payload berbeda menghasilkan `409`. Simpan key dan hasil secara persisten agar retry tidak menggandakan tiket atau notifikasi.
-- Jangan mencatat isi chat lengkap, nomor WhatsApp, kode akses, cookie, atau payload sensitif ke log aplikasi.
+- Jangan mencatat isi chat lengkap, nomor WhatsApp, cookie, atau payload sensitif ke log aplikasi.
 
 ## 6. Kontrak tipe bersama
 
@@ -132,10 +132,10 @@ Setiap `data` memiliki `{ "runId": "uuid", "seq": 1, ... }`. `runId` unik untuk 
 
 | Event | Payload tambahan | Tampilan frontend |
 |---|---|---|
-| `run.started` | `startedAt` | Buat bubble proses: “AI sedang memproses”. |
-| `step.started` | `toolCallId`, `step`, `label` | Tambahkan langkah berstatus berjalan, misalnya “Memahami aduan”. |
-| `step.completed` | `toolCallId`, `step`, `label` | Tandai langkah terkait selesai. |
-| `step.failed` | `toolCallId`, `step`, `label`, `retryable` | Tandai langkah gagal dengan pesan aman; agent bisa melanjutkan bila kegagalan dapat ditangani. |
+| `run.started` | `startedAt` | Tampilkan indikator loading singkat. |
+| `step.started` | `toolCallId`, `step`, `label` | Ganti teks indikator loading dengan label langkah yang sedang berjalan. |
+| `step.completed` | `toolCallId`, `step`, `label` | Hapus label langkah yang selesai; jangan simpan daftar langkah di chat. |
+| `step.failed` | `toolCallId`, `step`, `label`, `retryable` | Hapus label langkah; tampilkan error hanya bila stream berakhir dengan event `error`. |
 | `reply.delta` | `text` | Tambahkan teks ke bubble jawaban asisten secara berurutan. |
 | `draft.updated` | `draft`, `readyForConfirmation`, `missingFields` | Perbarui ringkasan draft di browser; jangan kirim laporan otomatis. |
 | `complaint.created` | `submission` | Simpan receipt; laporan sudah dibuat oleh adapter server. |
@@ -178,8 +178,8 @@ data: {"runId":"run-uuid","seq":9,"reply":"Saya memahami kekhawatiran Anda. Di m
 
 **Aturan tampilan dan lifecycle**
 
-1. Saat pengguna mengirim pesan, tampilkan pesan pengguna dan panel proses yang dapat dibuka/tutup. Tampilkan label yang mudah dipahami seperti “Memahami aduan” dan “Menyiapkan ringkasan”.
-2. Render langkah berdasarkan `toolCallId`, bukan hanya nama tool. Satu tool dapat dipanggil berkali-kali dalam satu loop.
+1. Saat pengguna mengirim pesan, tampilkan pesan pengguna dan satu indikator loading sementara. Teks indikator mengikuti langkah yang sedang aktif, misalnya “Memahami aduan” lalu “Menyiapkan ringkasan”. Indikator hilang saat giliran selesai atau gagal.
+2. Pasangkan event langkah berdasarkan `toolCallId` agar label yang selesai dihapus dengan benar. Jangan tampilkan riwayat langkah atau hasil tool di percakapan.
 3. Susun `reply.delta` sesuai urutan `seq`; saat `done`, gunakan `reply` final sebagai sumber kebenaran, simpan hasil dalam state chat browser, lalu aktifkan kembali input. Gunakan `draft` pada `done` sebagai draft final.
 4. Tampilkan tombol konfirmasi hanya jika `readyForConfirmation` true, tetapi submit tetap memerlukan aksi pengadu dan validasi server. Jangan menampilkan WhatsApp dalam timeline proses; nomor hanya terlihat kepada pengadu dalam draft miliknya.
 5. Jika stream berakhir tanpa `done` atau `error`, tandai respons terputus dan tawarkan **Coba lagi**. Respons parsial diberi label belum selesai dan tidak dianggap sebagai jawaban final; percobaan baru memakai `runId` baru. MVP tidak mendukung replay/reconnect otomatis atau resume event.
@@ -201,7 +201,7 @@ Request chat juga menerima `sessionId` UUID per sesi dan `confirmed` boolean (de
 
 `createChatHandler(getAiServices)` memvalidasi request dan menjalankan loop. Tipe `AiServices` memuat `agent: AgentDependencies` dan callback wajib `onSubmitted(receipt, conversation)`. Service agent terdiri dari complete, submit, mainKnowledge, persona, search, dan track; tidak ada fallback data atau konfigurasi lokal. getAiServices diisi Dimas. Sebelum terhubung, request valid menghasilkan HTTP 503 JSON dengan code AI_INTEGRATION_NOT_CONFIGURED; gangguan loader service menghasilkan AI_INTEGRATION_UNAVAILABLE.
 
-Setelah konfirmasi pada draft lengkap, agent memanggil submit(draft, { sessionId, idempotencyKey }, signal). Service backend menyimpan laporan secara idempoten lalu mengembalikan receipt `{ complaintId, ticketNumber, accessCode, status: "NEW", createdAt }`. Tidak ada mode atau WhatsApp dalam receipt. Callback onSubmitted menjadwalkan evaluasi; Promise callback ditunggu, sehingga backend sebaiknya hanya menunggu acknowledgement antrean. Callback gagal tidak membatalkan laporan, dan backend harus mencatat pekerjaan gagal/retry. Retry receipt dapat memanggil callback lagi; deduplikasi berdasarkan complaintId wajib.
+Setelah konfirmasi pada draft lengkap, agent memanggil submit(draft, { sessionId, idempotencyKey }, signal). Service backend menyimpan laporan secara idempoten lalu mengembalikan receipt `{ complaintId, ticketNumber, status: "NEW", createdAt }`. Receipt tidak berisi kode akses, mode, atau WhatsApp. Callback onSubmitted menjadwalkan evaluasi; Promise callback ditunggu, sehingga backend sebaiknya hanya menunggu acknowledgement antrean. Callback gagal tidak membatalkan laporan, dan backend harus mencatat pekerjaan gagal/retry. Retry receipt dapat memanggil callback lagi; deduplikasi berdasarkan complaintId wajib.
 
 Agent mengirim complaint.created dan done.submission dengan receipt yang sama; draft akhir menjadi null dan readyForConfirmation false. Client menyimpan receipt segera, termasuk bila stream terputus sebelum done. Jika belum menerima receipt tetapi koneksi putus, retry request/key yang sama karena laporan mungkin sudah commit. Konflik idempotensi setelah stream dimulai dikirim sebagai error SSE IDEMPOTENCY_CONFLICT; endpoint REST memakai HTTP 409. Validasi sesi/key/draft sebelum stream memakai HTTP 400.
 
@@ -235,7 +235,6 @@ Membuat laporan hanya setelah pengadu mengonfirmasi draft. Frontend mengirim hea
 {
   "data": {
     "ticketNumber": "ADU-2026-001284",
-    "accessCode": "7K9M-Q3PX",
     "status": "NEW",
     "createdAt": "2026-10-31T08:30:00Z",
     "evaluationStatus": "PENDING"
@@ -243,17 +242,17 @@ Membuat laporan hanya setelah pengadu mengonfirmasi draft. Frontend mengirim hea
 }
 ```
 
-- `confirmed` harus `true`; deskripsi dan nomor wajib. Tiket unik dan kode akses dihasilkan server; simpan hanya hash kode akses.
-- Tampilkan kode akses kepada pengadu saat berhasil dibuat. Untuk retry idempoten, hasil yang memuat kode harus tersedia sementara secara aman; tetapkan masa berlaku penyimpanan hasil, misalnya 24 jam. Setelah itu jangan mengembalikan kode asli.
+- `confirmed` harus `true`; deskripsi dan nomor WhatsApp wajib. Server menghasilkan nomor tiket unik, acak, dan sulit ditebak; pelacakan tidak menggunakan kode akses.
+- Setelah event `complaint.created`, tutup chat dan tampilkan animasi sukses serta nomor tiket yang dapat disalin. Jangan mengirim laporan kedua; simpan receipt saat diterima meskipun stream terputus sebelum `done`.
 - Aduan dan metadata pekerjaan evaluasi dicatat sebelum respons. Percakapan dikirim hanya untuk evaluasi sementara, tidak disimpan permanen. Jika evaluasi tidak dapat dijalankan karena data sementara hilang, tandai `FAILED`; laporan tetap berhasil. Lihat bagian 10 untuk batas deployment.
 - Jangan mengandalkan draft dari klien sebagai sumber tepercaya: validasi, normalisasi, dan lakukan penyamaran di server.
 
 ### 7.3 `POST /api/tracking/verify`
 
-Memverifikasi nomor tiket dan kode akses. Jangan letakkan kode akses di URL, query string, atau log.
+Mencari status berdasarkan nomor tiket saja.
 
 ```json
-{ "ticketNumber": "ADU-2026-001284", "accessCode": "7K9M-Q3PX" }
+{ "ticketNumber": "ADU-2026-001284" }
 ```
 
 **Response `200`**
@@ -272,7 +271,7 @@ Memverifikasi nomor tiket dan kode akses. Jangan letakkan kode akses di URL, que
 }
 ```
 
-Gunakan respons gagal generik untuk tiket atau kode yang salah, rate limit, dan pembandingan hash yang aman. Tidak mengembalikan nomor WhatsApp. Halaman pelacakan meminta kode saat dibuka jika belum diverifikasi; data terverifikasi dapat disimpan sementara di state browser.
+Gunakan nomor tiket acak berentropi tinggi, respons generik untuk tiket tidak ditemukan, dan rate limit. Siapa pun yang mengetahui nomor tiket dapat melihat hasil pelacakan; batasi respons pada status dan informasi yang aman untuk dibagikan. Jangan kembalikan nomor WhatsApp, identitas, atau chat mentah; lindungi URL tiket dari log dan analytics yang tidak diperlukan.
 
 ## 8. Autentikasi dan API admin
 
@@ -330,7 +329,7 @@ Mengakhiri sesi dan menghapus cookie. **Response `200`:** `{ "data": { "success"
 }
 ```
 
-Baik endpoint daftar, detail, dashboard, evaluasi maupun error **tidak boleh mengembalikan nomor WhatsApp, hash kode akses, atau chat mentah**. Gunakan pemilihan kolom/DTO eksplisit, bukan mengembalikan seluruh baris database.
+Baik endpoint daftar, detail, dashboard, evaluasi maupun error **tidak boleh mengembalikan nomor WhatsApp atau chat mentah**. Gunakan pemilihan kolom/DTO eksplisit, bukan mengembalikan seluruh baris database.
 
 ### 8.6 `POST /api/admin/complaints/[id]/updates`
 
@@ -441,7 +440,7 @@ Tools berikut adalah fungsi server yang dipanggil model melalui tool calling, bu
 | `analyze_conversation` | Pesan yang relevan dan draft saat ini | Konteks, informasi tersedia dan kebutuhan pengadu. |
 | `analyze_complaint` | Percakapan dan draft | Deskripsi, kategori, ringkasan, serta field wajib yang kurang. Dapat digabung dengan tool sebelumnya. |
 | `create_complaint_draft` | Data hasil analisis | `ComplaintDraft` untuk diperiksa pengadu; tidak menyimpan tiket. |
-| `get_complaint_status` | Tiket dan kode akses | Status resmi setelah verifikasi, atau error generik. |
+| `get_complaint_status` | Nomor tiket | Status resmi berdasarkan tiket, atau error generik. |
 | `search_knowledge` | Pertanyaan pencarian dan batas hasil | Potongan sumber resmi yang relevan beserta metadata sumber; dipanggil ketika agent membutuhkan informasi rujukan. |
 
 Batasi jumlah pemanggilan tool per giliran, validasi semua argumen dan output, serta tangani timeout. AI tidak diberi kredensial database atau izin status.
@@ -636,7 +635,7 @@ Urutan system prompt: **aturan dasar tetap → Main Knowledge → positive promp
 
 Saat perubahan status berhasil, buat record notifikasi `PENDING` dalam transaksi yang sama. Worker membaca antrean, mengambil nomor hanya untuk pengiriman, lalu memanggil API penyedia WhatsApp. Simpan hasil `SENT` atau `FAILED`, jumlah percobaan dan ID penyedia jika tersedia. Retry memakai ID notifikasi sebagai kunci idempotensi jika penyedia mendukungnya; tanpa dukungan penyedia, pengiriman tepat sekali tidak dapat dijamin.
 
-Pesan berisi nomor tiket, status, catatan/alasan yang layak dibagikan, dan petunjuk pelacakan. Jangan kirim kode akses dalam URL. Konfirmasi ketersediaan akun, template, dan kemampuan penyedia WhatsApp sejak awal hackathon. `SENT` berarti diterima penyedia, bukan bukti bahwa pesan dibaca pengadu.
+Pesan berisi nomor tiket, status, catatan/alasan yang layak dibagikan, dan petunjuk pelacakan. Konfirmasi ketersediaan akun, template, dan kemampuan penyedia WhatsApp sejak awal hackathon. `SENT` berarti diterima penyedia, bukan bukti bahwa pesan dibaca pengadu.
 
 ## 12. Skema database logis
 
@@ -645,21 +644,20 @@ Gunakan UUID sebagai PK, timestamp UTC, FK dan indeks pada kolom pencarian. Simp
 | Tabel | Kolom utama |
 |---|---|
 | `admins` | `id`, `name`, `email` unik, `password_hash`, `created_at` |
-| `complaints` | `id`, `ticket_number` unik, `access_code_hash`, `reporter_whatsapp`, `description`, `category`, `ai_summary`, `status`, `created_at`, `updated_at` |
-| `complaint_updates` | `id`, `complaint_id` FK, `admin_id` FK, `status`, `note`, `rejection_reason`, `created_at` |
+| `complaints` | `id`, `ticket_number` unik, `idempotency_key` unik, `request_hash`, `reporter_whatsapp`, `description`, `category`, `ai_summary`, `status`, `created_at`, `updated_at` |
+| `complaint_updates` | `id`, `complaint_id` FK, `admin_id` FK, `idempotency_key` unik, `request_hash`, `status`, `note`, `rejection_reason`, `created_at` |
 | `update_evidence` | `id`, `complaint_update_id` FK, `storage_key`, `file_name`, `mime_type`, `size_bytes`, `created_at` |
 | `notifications` | `id`, `complaint_update_id` FK unik, `status`, `attempt_count`, `provider_message_id`, `created_at`, `sent_at` |
 | `ai_evaluations` | `id`, `complaint_id` FK unik, `summary`, `has_new_learning`, `status`, `created_at` |
 | `persona_prompts` | `id`, `evaluation_id` FK, `type`, `content`, `is_active`, `created_at` |
 | `ai_provider_settings` | `id`, `endpoint`, `model`, `api_key_ciphertext`, `updated_by` FK ke admin, `updated_at`; satu konfigurasi aktif |
-| `idempotency_keys` | `key`, `operation`, `request_hash`, hasil terenkripsi/terbatas, `expires_at` |
 
-Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memiliki banyak bukti dan satu notifikasi; satu evaluasi dapat menghasilkan banyak prompt. Bukti minimal satu dan alasan penolakan ditegakkan dalam transaksi aplikasi. Simpan objek file terpisah dari database; database menyimpan kunci privatnya.
+Untuk MVP, tidak perlu tabel idempotensi terpisah. Backend mencari `idempotency_key` pada baris aduan atau pembaruan status, membandingkan `request_hash`, lalu mengembalikan hasil yang sudah ada atau `409` jika payload berbeda. Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memiliki banyak bukti dan satu notifikasi; satu evaluasi dapat menghasilkan banyak prompt. Bukti minimal satu dan alasan penolakan ditegakkan dalam transaksi aplikasi. Simpan objek file terpisah dari database; database menyimpan kunci privatnya.
 
 ## 13. Kriteria penerimaan demo
 
 1. Guest dapat bercakap, menerima tanggapan empatik dan saran sementara yang relevan, lalu mengonfirmasi draft berisi aduan dan WhatsApp.
-2. Laporan tersimpan sekali, menghasilkan tiket serta kode akses; status dapat dilacak dengan keduanya.
+2. Laporan tersimpan sekali dan menghasilkan nomor tiket; status dapat dilacak menggunakan nomor tiket tersebut.
 3. Admin login dan tidak melihat nomor WhatsApp di halaman maupun respons API.
 4. Server menolak perubahan status tanpa bukti, transisi tidak sah, serta penolakan tanpa alasan.
 5. Perubahan yang valid membuat antrean WhatsApp; demo menunjukkan pesan terkirim melalui penyedia yang tersedia atau secara jelas menunjukkan status gagal jika integrasi bermasalah.

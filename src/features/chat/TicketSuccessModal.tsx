@@ -10,7 +10,9 @@ interface TicketSuccessModalProps {
   onClose?: () => void;
 }
 
-export default function TicketSuccessModal({ complaint }: TicketSuccessModalProps) {
+export default function TicketSuccessModal({
+  complaint,
+}: TicketSuccessModalProps) {
   const [copiedTicket, setCopiedTicket] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
@@ -31,14 +33,15 @@ export default function TicketSuccessModal({ complaint }: TicketSuccessModalProp
       <div className="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden">
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-slate-100">
-          <span className="text-xs font-mono font-semibold uppercase tracking-wider text-[#008069]">
+          <span className="text-xs font-mono font-semibold uppercase tracking-wider text-primary">
             Tiket Terbit
           </span>
           <h2 className="text-xl font-bold text-slate-900 mt-1">
             Laporan Anda Resmi Terdaftar
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Simpan nomor tiket dan kode akses berikut untuk memeriksa perkembangan aduan tanpa akun.
+            Simpan nomor tiket dan kode akses berikut untuk memeriksa
+            perkembangan aduan tanpa akun.
           </p>
         </div>
 
@@ -58,8 +61,14 @@ export default function TicketSuccessModal({ complaint }: TicketSuccessModalProp
               onClick={handleCopyTicket}
               className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-slate-900 text-xs font-medium flex items-center gap-1 transition-colors"
             >
-              {copiedTicket ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-              <span className="text-[11px]">{copiedTicket ? "Tersalin" : "Salin"}</span>
+              {copiedTicket ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+              <span className="text-[11px]">
+                {copiedTicket ? "Tersalin" : "Salin"}
+              </span>
             </button>
           </div>
 
@@ -77,21 +86,30 @@ export default function TicketSuccessModal({ complaint }: TicketSuccessModalProp
               onClick={handleCopyCode}
               className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-slate-900 text-xs font-medium flex items-center gap-1 transition-colors"
             >
-              {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-              <span className="text-[11px]">{copiedCode ? "Tersalin" : "Salin"}</span>
+              {copiedCode ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+              <span className="text-[11px]">
+                {copiedCode ? "Tersalin" : "Salin"}
+              </span>
             </button>
           </div>
 
           <div className="text-[11px] text-slate-500 flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-100">
             <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>Pembaruan status & bukti kerja akan dikirimkan otomatis ke nomor WhatsApp Anda.</span>
+            <span>
+              Pembaruan status & bukti kerja akan dikirimkan otomatis ke nomor
+              WhatsApp Anda.
+            </span>
           </div>
 
           {/* Action buttons */}
           <div className="pt-2 space-y-2">
             <Link
-              href={`/lacak/${complaint.ticketNumber}?code=${encodeURIComponent(complaint.accessCode)}`}
-              className="w-full py-2.5 px-4 rounded-lg font-semibold text-xs bg-[#008069] hover:bg-[#075e54] text-white flex items-center justify-center gap-1.5 shadow-2xs transition-all active:scale-[0.98]"
+              href={`/laporan/lacak/${encodeURIComponent(complaint.ticketNumber)}`}
+              className="w-full py-2.5 px-4 rounded-lg font-semibold text-xs bg-primary hover:bg-dark text-white flex items-center justify-center gap-1.5 shadow-2xs transition-all active:scale-[0.98]"
             >
               <span>Lacak Progres Tiket</span>
               <ArrowRight className="w-3.5 h-3.5" />

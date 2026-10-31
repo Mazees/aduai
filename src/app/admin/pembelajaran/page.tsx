@@ -2,20 +2,27 @@
 
 import React, { useState } from "react";
 import AdminLayout from "@/components/AdminLayout";
-import { MockService, INITIAL_PROMPTS, INITIAL_EVALUATIONS } from "@/lib/mock-service";
+import {
+  MockService,
+  INITIAL_PROMPTS,
+  INITIAL_EVALUATIONS,
+} from "@/lib/mock-service";
 import { PersonaPrompt, AiEvaluation } from "@/types/complaint";
 import { formatDateTime } from "@/lib/utils";
-import {
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useIsMounted } from "@/lib/use-is-mounted";
 
 export default function AdminPembelajaranPage() {
   const isMounted = useIsMounted();
-  const [clientPrompts, setClientPrompts] = useState<PersonaPrompt[] | null>(null);
-  const prompts = clientPrompts ?? (isMounted ? MockService.getPersonaPrompts() : INITIAL_PROMPTS);
-  const evaluations: AiEvaluation[] = isMounted ? MockService.getAiEvaluations() : INITIAL_EVALUATIONS;
+  const [clientPrompts, setClientPrompts] = useState<PersonaPrompt[] | null>(
+    null,
+  );
+  const prompts =
+    clientPrompts ??
+    (isMounted ? MockService.getPersonaPrompts() : INITIAL_PROMPTS);
+  const evaluations: AiEvaluation[] = isMounted
+    ? MockService.getAiEvaluations()
+    : INITIAL_EVALUATIONS;
 
   const [newType, setNewType] = useState<"POSITIVE" | "NEGATIVE">("POSITIVE");
   const [newContent, setNewContent] = useState("");
@@ -46,7 +53,7 @@ export default function AdminPembelajaranPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6 max-w-5xl">
+      <div className="admin-page admin-page-detail">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
           <div>
@@ -60,7 +67,7 @@ export default function AdminPembelajaranPage() {
 
           <button
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#008069] hover:bg-[#075e54] text-white text-xs font-semibold transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-dark text-white text-xs font-semibold transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Tambah Aturan Persona</span>
@@ -69,7 +76,10 @@ export default function AdminPembelajaranPage() {
 
         {/* Explain Card */}
         <div className="bg-slate-50 text-slate-700 p-3.5 rounded-xl border border-slate-200 text-xs leading-relaxed">
-          <strong>Self-Learning Agent:</strong> Setelah aduan terbit, agen evaluasi secara otomatis meninjau percakapan untuk mendeteksi friksi komunikasi dan menghasilkan prompt persona positif/negatif tanpa merusak integritas sistem.
+          <strong>Self-Learning Agent:</strong> Setelah aduan terbit, agen
+          evaluasi secara otomatis meninjau percakapan untuk mendeteksi friksi
+          komunikasi dan menghasilkan prompt persona positif/negatif tanpa
+          merusak integritas sistem.
         </div>
 
         {/* Persona Prompts Grid */}
@@ -103,7 +113,7 @@ export default function AdminPembelajaranPage() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleToggle(p.id)}
-                        className="font-medium text-[#008069] hover:underline"
+                        className="font-medium text-primary hover:underline"
                       >
                         {p.isActive ? "Aktif" : "Nonaktif"}
                       </button>
@@ -185,7 +195,7 @@ export default function AdminPembelajaranPage() {
                 className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs space-y-1"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-[#008069]">
+                  <span className="font-mono font-bold text-primary">
                     {ev.ticketNumber}
                   </span>
                   <span className="text-slate-400 font-mono text-[10px]">
@@ -256,7 +266,7 @@ export default function AdminPembelajaranPage() {
                     value={newContent}
                     onChange={(e) => setNewContent(e.target.value)}
                     placeholder="Contoh: Selalu konfirmasi patokan visual terdekat secara sopan..."
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-[#008069] focus:ring-1 focus:ring-[#008069] outline-none"
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-primary focus:ring-1 focus:ring-primary outline-none"
                   />
                 </div>
 
@@ -270,7 +280,7 @@ export default function AdminPembelajaranPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-xl text-xs bg-[#008069] hover:bg-[#075e54] text-white font-bold"
+                    className="px-5 py-2 rounded-xl text-xs bg-primary hover:bg-dark text-white font-bold"
                   >
                     Simpan Aturan
                   </button>
