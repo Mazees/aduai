@@ -2,6 +2,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { redactContacts, normalizeWhatsapp } from '@/lib/ai/privacy';
+import { dispatchSubmissionNotification } from '@/features/notifications/server/service';
 import type {
   ComplaintDraft,
   SubmissionContext,
@@ -147,6 +148,13 @@ export async function submitComplaint(
     status: 'NEW',
     createdAt: finalRecord.created_at,
   };
+
+  // Kirim notifikasi WhatsApp pendaftaran aduan (Non-blocking / resilient)
+  try {
+    await dispatchSubmissionNotification(finalRecord.id);
+  } catch (waErr) {
+    console.warn('[SubmissionNotification] Gagal mengirim pesan WA konfirmasi pendaftaran:', (waErr as Error).message);
+  }
 
   return receipt;
 }

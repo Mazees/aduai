@@ -2,6 +2,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { ALLOWED_STATUS_TRANSITIONS, type ComplaintStatus } from '@/types/complaint';
+import { dispatchStatusNotification } from '@/features/notifications/server/service';
 
 export interface AdminComplaintListItem {
   id: string;
@@ -56,7 +57,7 @@ export interface UpdateComplaintResult {
   status: ComplaintStatus;
   note: string | null;
   evidence: { id: string; fileName: string; mimeType: string }[];
-  notificationStatus: 'PENDING';
+  notificationStatus: 'PENDING' | 'SENT' | 'FAILED';
   createdAt: string;
 }
 
@@ -325,13 +326,27 @@ export async function updateComplaintStatus(
     })
     .eq('id', input.complaintId);
 
+  // 8. Kirim notifikasi WhatsApp otomatis ke pelapor (Resilient / Non-blocking)
+  let notificationStatus: 'PENDING' | 'SENT' | 'FAILED' = 'PENDING';
+  try {
+    const notifResult = await dispatchStatusNotification({
+      complaintId: input.complaintId,
+      status: targetStatus,
+      note: fullNote,
+    });
+    notificationStatus = notifResult.success ? 'SENT' : 'FAILED';
+  } catch (notifErr) {
+    console.warn('[NotificationDispatch] Gagal mengirim WhatsApp notifikasi:', (notifErr as Error).message);
+    notificationStatus = 'FAILED';
+  }
+
   const result: UpdateComplaintResult = {
     id: primaryEvidenceId,
     complaintId: input.complaintId,
     status: targetStatus,
     note: fullNote,
     evidence: evidenceResponses,
-    notificationStatus: 'PENDING',
+    notificationStatus,
     createdAt: new Date().toISOString(),
   };
 
