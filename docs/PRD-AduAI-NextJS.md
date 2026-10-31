@@ -399,9 +399,25 @@ Jika belum ada konfigurasi, kembalikan `configured: false`, `endpoint: null`, `m
 
 URL harus lengkap dan model harus mendukung tool calling. Pada konfigurasi pertama, `apiKey` wajib. Pada pembaruan, `apiKey` boleh tidak dikirim atau dikirim sebagai string kosong untuk mempertahankan key yang ada. Response `200` mengembalikan bentuk aman yang sama dengan `GET`; input tidak valid mengembalikan `400`, akses tanpa sesi `401`, dan kegagalan penyimpanan mengembalikan error generik tanpa nilai sensitif. Simpan API key terenkripsi dengan kunci yang disimpan terpisah di secret server; jangan mengekspos key atau service role ke browser. Jangan menulis secret pada `.env.example`, source, atau Git.
 
-Dimas menyediakan endpoint dan penyimpanan konfigurasi yang hanya dapat diakses admin. Mada menghubungkan agent ke konfigurasi server yang tersimpan; bila belum ada konfigurasi, gunakan fallback mock hanya untuk pengembangan lokal dan kembalikan error konfigurasi di production. Untuk sementara, agent menggunakan fallback mock tanpa API key; konfigurasi environment untuk provider AI tidak digunakan. Fallback ini hanya untuk pengujian lokal dan tidak boleh berpura-pura sebagai model asli. Halaman dan penyimpanan konfigurasi **belum diimplementasikan**.
+Untuk sementara agent membaca endpoint, model, dan API key dari file JSON lokal yang diabaikan Git dan hanya untuk development. Jika belum lengkap, agent mengembalikan error konfigurasi; tidak ada fallback jawaban buatan. Saat backend siap, Dimas menyediakan endpoint dan penyimpanan yang hanya dapat diakses admin, serta Mada menghubungkan agent ke konfigurasi database. API key harus disimpan terenkripsi. Halaman dan API admin **belum diimplementasikan**.
 
 Karena endpoint akan diakses server, validasi URL di backend dan terapkan kebijakan outbound untuk mencegah akses tidak sah ke jaringan internal atau metadata server, termasuk melalui redirect dan resolusi DNS. Bila perlu mendukung provider lokal saat development, gunakan pengecualian khusus lingkungan development yang dikonfigurasi secara eksplisit. Jangan melakukan request ke provider hanya karena form dibuka.
+
+### 8.10 Main Knowledge — konteks langsung untuk agent
+
+Admin dapat mengatur satu teks **Main Knowledge** melalui dashboard. Isinya dapat menjelaskan wilayah layanan, kewenangan instansi, dan informasi dasar yang sering dibutuhkan pengadu. Teks ini langsung disisipkan ke system prompt pada setiap giliran; tidak memerlukan vector search.
+
+Batas awal **3.000 karakter**, termasuk spasi dan baris baru. Frontend dan server memakai hitungan JavaScript `string.length` yang sama. Tampilkan penghitung seperti `1200/3000`; input melewati batas harus ditolak server dengan HTTP 400 dan pesan yang jelas, bukan dipotong diam-diam. Teks kosong diperbolehkan dan berarti tidak ada konteks tambahan.
+
+Kontrak yang akan diimplementasikan Dimas:
+- `GET /api/admin/ai/main-knowledge` → `{ "data": { "mainKnowledge": "...", "maxCharacters": 3000 } }`.
+- `PUT /api/admin/ai/main-knowledge` menerima `{ "mainKnowledge": "..." }`; response sukses mengembalikan bentuk yang sama.
+- Kedua endpoint wajib autentikasi admin; PUT juga memeriksa CSRF/origin. Penyimpanan menjadi tugas Dimas dan tampilan textarea beserta penghitung menjadi tugas Cahya.
+
+Mada mengerjakan validasi dan injeksi ke agent. Sementara dibaca dari `.local/ai-data.json` pada field `mainKnowledge`, bukan dari input pengadu. Perubahan dibaca pada giliran berikutnya.
+
+Urutan konteks: **aturan dasar → Main Knowledge → persona positif/negatif**. Main Knowledge adalah informasi rujukan dan tidak boleh mengubah kewenangan AI atau aturan dasar. Penjelasan wilayah membantu menghindari pertanyaan administrasi yang berulang, tetapi AI tetap meminta nama jalan/patokan jika lokasi kejadian belum jelas. Tidak menganggap cakupan layanan sebagai alamat kejadian otomatis.
+
 
 ## 9. Kontrak internal AI dan tools
 
@@ -534,80 +550,19 @@ grant execute on function public.match_knowledge(extensions.vector, double preci
 
 `0.5` hanya nilai awal untuk diuji, bukan jaminan relevansi. HNSW dapat ditambahkan meski untuk data demo kecil pencarian biasa mungkin sudah memadai. `service_role` hanya digunakan di server dan dapat melewati RLS; jangan pernah menaruh key-nya di browser atau variabel `NEXT_PUBLIC_`.
 
-#### 2. Install dependency dan konfigurasi Next.js
+#### 2. Runtime embedding pada bagian AI
 
-```bash
-npm install @supabase/supabase-js @xenova/transformers@2.17.2
-```
+Implementasi Mada memakai `@huggingface/transformers` 3.8.1, model `Xenova/paraphrase-multilingual-MiniLM-L12-v2`, dtype `q8`, pooling mean, dan normalize true. Output tetap 384 dimensi. Runtime lama v2 diganti karena dependensi rentan. Loader berada di `src/features/knowledge/server/embedding.ts` dan memakai Promise singleton serta cache sementara.
 
-Konfigurasikan package native agar dijalankan di server:
+Package native di-load melalui Node.js runtime agar tidak memerlukan junction pada drive proyek development. Jangan memakai Edge Runtime. Uji packaging dan cold start Vercel tetap diperlukan pada tahap deployment; pengujian saat ini lokal. Versi Next.js proyek memakai cacheComponents: jangan menambahkan konfigurasi route segment yang tidak kompatibel tanpa memeriksa dokumentasi terpasang.
 
-```js
-// next.config.mjs
-const nextConfig = {
-  serverExternalPackages: ['@xenova/transformers', 'onnxruntime-node'],
-};
-export default nextConfig;
-```
-
-Isi `.env.local` di server dengan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`. Jangan commit file tersebut. Jalankan route/worker yang memakai model dengan Node.js runtime, misalnya `export const runtime = 'nodejs'`; model native ini tidak ditujukan untuk Edge Runtime.
-
-#### 3. Cara model embedding di-load
-
-Gunakan `Xenova/paraphrase-multilingual-MiniLM-L12-v2` melalui pipeline `feature-extraction`, mode quantized, lalu `pooling: 'mean'` dan `normalize: true`. Model di-load di server saat pertama kali dibutuhkan dan dipakai ulang selama proses server yang sama masih hidup. Saat cold start, file model dapat diunduh dan perlu waktu serta ruang cache; tiap instance serverless dapat memuat modelnya sendiri.
-
-Contoh loader mengikuti pola runtime `require` terisolasi dan pipeline singleton. Gunakan `@xenova/transformers` v2, seperti perintah instalasi di atas:
-
-```js
-// lib/vector/embedding.js — server saja
-import 'server-only';
-import os from 'node:os';
-import path from 'node:path';
-
-const MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
-let pipelineInstance = null;
-
-async function getPipelineInstance() {
-  if (pipelineInstance) return pipelineInstance;
-
-  const getTransformers = new Function(
-    "return typeof require !== 'undefined' ? require('@xenova/transformers') : null;",
-  );
-  const transformers = getTransformers();
-  if (!transformers?.pipeline) {
-    throw new Error('Runtime Transformers.js tidak tersedia');
-  }
-
-  transformers.env.allowLocalModels = false;
-  transformers.env.useBrowserCache = false;
-  transformers.env.cacheDir = path.join(os.tmpdir(), '.cache');
-  pipelineInstance = await transformers.pipeline('feature-extraction', MODEL, {
-    quantized: true,
-  });
-  return pipelineInstance;
-}
-
-export async function generateEmbedding(text) {
-  if (typeof text !== 'string' || !text.trim()) {
-    throw new Error('Teks embedding kosong');
-  }
-  const extractor = await getPipelineInstance();
-  const output = await extractor(text.trim(), { pooling: 'mean', normalize: true });
-  const vector = Array.from(output.data);
-  if (vector.length !== 384 || !vector.every(Number.isFinite)) {
-    throw new Error('Embedding tidak valid');
-  }
-  return vector;
-}
-```
-
-Loader ini menyimpan instance setelah loading selesai; permintaan pertama yang bersamaan masih dapat memulai lebih dari satu loading. Pola `new Function(...require...)` bergantung pada apakah `require` tersedia dalam runtime/bundling aktual: **uji di deployment Vercel**, karena tidak dijamin bekerja pada semua konfigurasi Next.js. Jika tidak tersedia, gunakan pola import server-side yang kompatibel dengan versi Next.js yang dipakai dan uji ulang. Cache `/tmp` bersifat sementara dan bisa hilang pada cold start. Jangan mengganti kegagalan model dengan vektor palsu karena hasilnya bukan kemiripan semantik; jika gagal, tampilkan pencarian tidak tersedia atau gunakan pencarian teks yang jelas ditandai.
+SQL, Supabase, dan deployment adalah pekerjaan Dimas. Untuk tahap flow AI/endpoint/CLI, data knowledge, tracking, evaluasi, dan persona memakai JSON lokal yang diabaikan Git. Sumber dummy harus disebut sebagai contoh, bukan informasi resmi. Tidak ada pembuatan tabel/migrasi baru dalam scope Mada.
 
 #### Deploy ke Vercel Hobby
 
 1. Pastikan proyek Next.js dapat di-build, commit dan push ke repositori Git; jangan commit `.env.local` atau service role key.
 2. Buat proyek di dashboard Vercel paket **Hobby**, lalu import repositori. Vercel mendeteksi Next.js dan menggunakan perintah build proyek.
-3. Tambahkan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`, serta secret untuk AI dan WhatsApp yang dipakai, pada **Project Settings → Environment Variables**. Gunakan nama env yang konsisten di kode. Jangan beri prefix `NEXT_PUBLIC_` pada service role key. Pilih environment Preview/Production sesuai kebutuhan dan redeploy setelah perubahan.
+3. Tambahkan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`, serta secret untuk WhatsApp yang dipakai, pada **Project Settings → Environment Variables**. Gunakan nama env yang konsisten di kode. Jangan beri prefix `NEXT_PUBLIC_` pada service role key. Pilih environment Preview/Production sesuai kebutuhan dan redeploy setelah perubahan.
 4. Jalankan SQL knowledge base pada Supabase, lalu indeks dokumen resmi dengan model embedding yang sama.
 5. Pastikan route yang memanggil model memakai `export const runtime = 'nodejs'`. Bila perlu, atur `export const maxDuration = 60` pada route dan cek batas yang berlaku untuk konfigurasi Fluid Compute proyek.
 6. Deploy **Preview**, lalu uji query pertama (cold start), query berikutnya, isi hasil, sumber yang tidak tersedia, logs, dan penggunaan memori. Pastikan output dimensi 384 dan server bisa mengunduh model saat cold start. Setelah lolos, deploy ke production.
@@ -707,6 +662,10 @@ Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memil
 4. Sambungkan perubahan status dengan bukti, antrean WhatsApp, dan pelacakan.
 5. Sambungkan evaluation agent, deduplikasi dan injeksi persona.
 6. Uji alur ujung ke ujung, privasi API admin, retry/idempotensi, dan kegagalan layanan eksternal.
+
+
+
+
 
 
 
