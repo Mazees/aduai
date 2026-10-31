@@ -10,7 +10,7 @@ export const metadata = {
 export default function BuatAduanPage() {
   return (
     <PublicLayout>
-      <div className="min-h-[calc(100vh-140px)] bg-[#f2f5f3]">
+      <div className="citizen-chat-container">
         <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Memuat asisten aduan...</div>}>
           <ChatContainer />
         </Suspense>

@@ -11,21 +11,24 @@ import { formatDateTime } from "@/lib/utils";
 import { Search, Inbox, Eye } from "lucide-react";
 import { useIsMounted } from "@/lib/use-is-mounted";
 
-const FILTER_TABS: { key: string; label: string; status?: ComplaintStatus }[] = [
-  { key: "ALL", label: "Semua Aduan" },
-  { key: "NEW", label: "Baru", status: "NEW" },
-  { key: "ACCEPTED", label: "Diterima", status: "ACCEPTED" },
-  { key: "IN_PROGRESS", label: "Diproses", status: "IN_PROGRESS" },
-  { key: "RESOLVED", label: "Selesai", status: "RESOLVED" },
-  { key: "REJECTED", label: "Ditolak", status: "REJECTED" },
-];
+const FILTER_TABS: { key: string; label: string; status?: ComplaintStatus }[] =
+  [
+    { key: "ALL", label: "Semua Aduan" },
+    { key: "NEW", label: "Baru", status: "NEW" },
+    { key: "ACCEPTED", label: "Diterima", status: "ACCEPTED" },
+    { key: "IN_PROGRESS", label: "Diproses", status: "IN_PROGRESS" },
+    { key: "RESOLVED", label: "Selesai", status: "RESOLVED" },
+    { key: "REJECTED", label: "Ditolak", status: "REJECTED" },
+  ];
 
 function AdminAduanListContent() {
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get("status") || "ALL";
   const isMounted = useIsMounted();
 
-  const complaints = isMounted ? MockService.getComplaints() : INITIAL_COMPLAINTS;
+  const complaints = isMounted
+    ? MockService.getComplaints()
+    : INITIAL_COMPLAINTS;
   const [activeTab, setActiveTab] = useState(initialStatus);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -49,15 +52,16 @@ function AdminAduanListContent() {
   }, [complaints, activeTab, searchQuery]);
 
   return (
-    <div className="space-y-5 max-w-6xl">
+    <div className="admin-page">
       {/* Header Title */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            Meja Kerja Seluruh Aduan
+            Daftar aduan
           </h1>
           <p className="text-xs text-slate-500">
-            Daftar pengaduan warga, status penanganan, dan verifikasi bukti dinas.
+            Daftar pengaduan warga, status penanganan, dan verifikasi bukti
+            dinas.
           </p>
         </div>
       </div>
@@ -79,7 +83,7 @@ function AdminAduanListContent() {
                 onClick={() => setActiveTab(tab.key)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
                   isActive
-                    ? "bg-[#008069] text-white"
+                    ? "bg-primary text-white"
                     : "bg-slate-100 hover:bg-slate-200/70 text-slate-700"
                 }`}
               >
@@ -99,7 +103,7 @@ function AdminAduanListContent() {
             placeholder="Cari berdasarkan tiket, kategori, atau uraian..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 focus:border-[#008069] text-xs text-slate-800 outline-none"
+            className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 focus:border-primary text-xs text-slate-800 outline-none"
           />
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
         </div>
@@ -112,15 +116,20 @@ function AdminAduanListContent() {
             <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
               <Inbox className="w-6 h-6" />
             </div>
-            <h3 className="font-semibold text-slate-800 text-sm">Tidak Ada Aduan Ditemukan</h3>
+            <h3 className="font-semibold text-slate-800 text-sm">
+              Tidak Ada Aduan Ditemukan
+            </h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Tidak ada laporan yang sesuai dengan tab status atau kata kunci pencarian yang dipilih.
+              Tidak ada laporan yang sesuai dengan tab status atau kata kunci
+              pencarian yang dipilih.
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-100">
+          <>
+          <p className="admin-scroll-hint admin-scroll-hint-row">Geser tabel untuk melihat kolom lainnya</p>
+          <div className="admin-data-scroll" role="region" aria-label="Tabel semua aduan, gulir horizontal untuk kolom lainnya" tabIndex={0}>
+            <table className="admin-data-table">
+              <thead>
                 <tr>
                   <th className="py-3.5 px-4">Nomor Tiket</th>
                   <th className="py-3.5 px-4">Kategori</th>
@@ -132,28 +141,33 @@ function AdminAduanListContent() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredComplaints.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3.5 px-4 font-mono font-bold text-[#008069]">
+                  <tr
+                    key={item.id}
+                    className="hover:bg-slate-50/70 transition-colors"
+                  >
+                    <td className="py-3.5 px-4 font-semibold text-primary">
                       {item.ticketNumber}
                     </td>
-                    <td className="py-3.5 px-4">
-                      <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-semibold">
+                    <td className="py-3.5 px-4" title={item.category}>
+                      <span className="font-medium">
                         {item.category}
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 text-slate-600 max-w-md">
-                      <p className="line-clamp-2 leading-relaxed">{item.aiSummary}</p>
+                    <td className="py-3.5 px-4 text-slate-600" title={item.aiSummary}>
+                      <p>
+                        {item.aiSummary}
+                      </p>
                     </td>
                     <td className="py-3.5 px-4">
                       <StatusBadge status={item.status} size="sm" />
                     </td>
-                    <td className="py-3.5 px-4 text-slate-400 font-mono">
+                    <td className="py-3.5 px-4 text-slate-500">
                       {formatDateTime(item.createdAt)}
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <Link
                         href={`/admin/aduan/${item.id}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#008069] hover:bg-[#075e54] text-white font-semibold transition-colors shadow-2xs"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-dark text-white font-semibold transition-colors shadow-2xs"
                       >
                         <Eye className="w-3.5 h-3.5" />
                         <span>Detail</span>
@@ -164,6 +178,7 @@ function AdminAduanListContent() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>
@@ -173,7 +188,13 @@ function AdminAduanListContent() {
 export default function AdminAduanListPage() {
   return (
     <AdminLayout>
-      <Suspense fallback={<div className="p-8 text-center text-xs text-slate-500">Memuat meja kerja aduan...</div>}>
+      <Suspense
+        fallback={
+          <div className="p-8 text-center text-xs text-slate-500">
+            Memuat meja kerja aduan...
+          </div>
+        }
+      >
         <AdminAduanListContent />
       </Suspense>
     </AdminLayout>

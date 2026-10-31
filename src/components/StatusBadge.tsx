@@ -36,7 +36,7 @@ export const STATUS_CONFIG: Record<
   RESOLVED: {
     label: "Selesai",
     bg: "bg-teal-50",
-    text: "text-[#008069]",
+    text: "text-primary",
     border: "border-teal-200",
     icon: CheckCheck,
   },

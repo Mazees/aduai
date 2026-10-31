@@ -17,15 +17,24 @@ import { useIsMounted } from "@/lib/use-is-mounted";
 
 export default function AdminAiProviderSettingsPage() {
   const isMounted = useIsMounted();
-  const [clientConfig, setClientConfig] = useState<AiProviderConfig | null>(null);
-  const config = clientConfig ?? (isMounted ? MockService.getAiProviderConfig() : INITIAL_PROVIDER_CONFIG);
+  const [clientConfig, setClientConfig] = useState<AiProviderConfig | null>(
+    null,
+  );
+  const config =
+    clientConfig ??
+    (isMounted ? MockService.getAiProviderConfig() : INITIAL_PROVIDER_CONFIG);
 
-  const [endpoint, setEndpoint] = useState(() => INITIAL_PROVIDER_CONFIG.endpoint);
+  const [endpoint, setEndpoint] = useState(
+    () => INITIAL_PROVIDER_CONFIG.endpoint,
+  );
   const [model, setModel] = useState(() => INITIAL_PROVIDER_CONFIG.model);
   const [apiKey, setApiKey] = useState("");
   const [isEditingKey, setIsEditingKey] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const handleSave = (e: React.FormEvent) => {
@@ -68,20 +77,24 @@ export default function AdminAiProviderSettingsPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6 max-w-3xl">
+      <div className="admin-page admin-page-narrow">
         {/* Header */}
         <div className="pb-2 border-b border-slate-200">
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
             Pengaturan Integrasi Provider AI
           </h1>
           <p className="text-xs text-slate-500">
-            Konfigurasi endpoint LLM, model percakapan, dan API key untuk agen aduan.
+            Konfigurasi endpoint LLM, model percakapan, dan API key untuk agen
+            aduan.
           </p>
         </div>
 
         {/* Security Alert PRD */}
         <div className="bg-slate-50 text-slate-600 p-3.5 rounded-xl border border-slate-200 text-xs leading-relaxed">
-          <strong>Keamanan Kunci (PRD Pasal 8.9):</strong> Kunci API disimpan terenkripsi di server dan tidak pernah diekspos ke publik/browser. Biarkan kolom API Key kosong jika Anda ingin mempertahankan kunci yang sudah tersimpan.
+          <strong>Keamanan Kunci (PRD Pasal 8.9):</strong> Kunci API disimpan
+          terenkripsi di server dan tidak pernah diekspos ke publik/browser.
+          Biarkan kolom API Key kosong jika Anda ingin mempertahankan kunci yang
+          sudah tersimpan.
         </div>
 
         {/* Form Card */}
@@ -100,7 +113,9 @@ export default function AdminAiProviderSettingsPage() {
           {saveSuccess && (
             <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Pengaturan provider AI berhasil diperbarui dan aktif di sistem.</span>
+              <span>
+                Pengaturan provider AI berhasil diperbarui dan aktif di sistem.
+              </span>
             </div>
           )}
 
@@ -117,12 +132,13 @@ export default function AdminAiProviderSettingsPage() {
                   value={endpoint}
                   onChange={(e) => setEndpoint(e.target.value)}
                   placeholder="https://api.openai.com/v1/chat/completions"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:border-[#008069] focus:ring-1 focus:ring-[#008069] text-xs sm:text-sm font-mono text-slate-800 outline-none"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:border-primary focus:ring-1 focus:ring-primary text-xs sm:text-sm font-mono text-slate-800 outline-none"
                 />
                 <Globe className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
-                Wajib berupa URL protokol HTTPS lengkap yang mendukung spesifikasi chat completions standar.
+                Wajib berupa URL protokol HTTPS lengkap yang mendukung
+                spesifikasi chat completions standar.
               </p>
             </div>
 
@@ -138,7 +154,7 @@ export default function AdminAiProviderSettingsPage() {
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                   placeholder="Contoh: gpt-4o-mini, claude-3-5-sonnet-20241022, gemini-1.5-flash"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:border-[#008069] focus:ring-1 focus:ring-[#008069] text-xs sm:text-sm font-mono text-slate-800 outline-none"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:border-primary focus:ring-1 focus:ring-primary text-xs sm:text-sm font-mono text-slate-800 outline-none"
                 />
                 <Bot className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               </div>
@@ -154,7 +170,7 @@ export default function AdminAiProviderSettingsPage() {
                   <button
                     type="button"
                     onClick={() => setIsEditingKey(true)}
-                    className="text-xs text-[#008069] font-semibold hover:underline"
+                    className="text-xs text-primary font-semibold hover:underline"
                   >
                     Ganti API Key
                   </button>
@@ -175,7 +191,7 @@ export default function AdminAiProviderSettingsPage() {
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder="Masukkan sk-..."
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:border-[#008069] focus:ring-1 focus:ring-[#008069] text-xs sm:text-sm font-mono text-slate-800 outline-none"
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:border-primary focus:ring-1 focus:ring-primary text-xs sm:text-sm font-mono text-slate-800 outline-none"
                   />
                 )}
                 <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -191,7 +207,7 @@ export default function AdminAiProviderSettingsPage() {
             <div className="flex flex-col sm:flex-row items-center gap-3 pt-4 border-t border-slate-100">
               <button
                 type="submit"
-                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-[#008069] hover:bg-[#075e54] text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-primary hover:bg-dark text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-[0.98] cursor-pointer"
               >
                 <span>Simpan Konfigurasi</span>
               </button>
@@ -204,7 +220,7 @@ export default function AdminAiProviderSettingsPage() {
               >
                 {isTesting ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin text-[#008069]" />
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
                     <span>Menguji Ping...</span>
                   </>
                 ) : (
@@ -232,7 +248,11 @@ export default function AdminAiProviderSettingsPage() {
                 ) : (
                   <AlertCircle className="w-4 h-4 text-rose-600" />
                 )}
-                <span>{testResult.success ? "Hasil Uji Koneksi Sukses" : "Uji Koneksi Gagal"}</span>
+                <span>
+                  {testResult.success
+                    ? "Hasil Uji Koneksi Sukses"
+                    : "Uji Koneksi Gagal"}
+                </span>
               </div>
               <p>{testResult.message}</p>
             </div>
