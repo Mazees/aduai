@@ -17,9 +17,9 @@ Pengadu berbicara dengan AI yang memahami situasi, merespons empatik, memberikan
 
 ## 2. Pembagian tugas
 
-- **Mada — AI:** flow percakapan, tool calling, prompt dasar, draft, penyamaran identitas, evaluation agent, deduplikasi pembelajaran, persona, dan integrasi knowledge jika dikerjakan.
-- **Dimas — backend:** skema database, Route Handlers, autentikasi, tiket, bukti, WhatsApp, integrasi AI, serta setup Supabase vector dan deployment jika dikerjakan.
-- **Cahya — frontend:** halaman pengadu dan admin, chat di browser, konfirmasi, pelacakan, formulir bukti, monitoring pembelajaran, serta status dan sumber pencarian knowledge jika dikerjakan.
+- **Mada — AI:** flow percakapan, tool calling, prompt dasar, draft, penyamaran identitas, evaluation agent, deduplikasi pembelajaran, persona, integrasi knowledge jika dikerjakan, dan koneksi agent ke konfigurasi provider.
+- **Dimas — backend:** skema database, Route Handlers, autentikasi, tiket, bukti, WhatsApp, integrasi AI, setup Supabase vector dan deployment jika dikerjakan, serta penyimpanan dan API pengaturan provider yang aman.
+- **Cahya — frontend:** halaman pengadu dan admin, chat di browser, konfirmasi, pelacakan, formulir bukti, monitoring pembelajaran, status dan sumber pencarian knowledge jika dikerjakan, serta halaman konfigurasi provider AI.
 
 Mada dan Dimas menyepakati fungsi agent dan format input/output; Cahya dan Dimas menyepakati contoh payload API sebelum implementasi.
 
@@ -36,6 +36,7 @@ Mada dan Dimas menyepakati fungsi agent dan format input/output; Cahya dan Dimas
 | `/admin/aduan` | Admin | Daftar dan filter laporan. |
 | `/admin/aduan/[id]` | Admin | Detail anonim dan perubahan status dengan bukti. |
 | `/admin/pembelajaran` | Admin | Ringkasan evaluasi dan daftar persona aktif. |
+| `/admin/pengaturan/ai` | Admin | Konfigurasi endpoint, model, dan API key provider AI. |
 
 Gunakan App Router, Route Handlers di `app/api`, Server Components untuk tampilan yang sesuai, dan Client Components untuk chat dan formulir. Pemeriksaan autentikasi dan otorisasi wajib dilakukan di server pada setiap endpoint admin.
 
@@ -367,6 +368,41 @@ Hanya admin terautentikasi dapat mengakses bukti; server melakukan streaming fil
 }
 ```
 
+### 8.9 Konfigurasi provider AI
+
+Halaman `/admin/pengaturan/ai` dikerjakan Cahya setelah autentikasi admin tersedia. Tampilan mengikuti kebutuhan pada referensi: form berisi **URL endpoint lengkap**, **nama model**, dan **API key**, serta tombol simpan. Tampilkan status ketika pengaturan berhasil disimpan atau gagal. Saat key sudah tersimpan, input dikosongkan; admin boleh membiarkannya kosong untuk mempertahankan key lama. Jangan tampilkan key utuh, termasuk melalui source HTML, logs, atau respons API.
+
+**`GET /api/admin/ai-provider`** — wajib sesi admin yang valid.
+
+```json
+{
+  "data": {
+    "configured": true,
+    "endpoint": "https://api.provider.example/v1/chat/completions",
+    "model": "nama-model",
+    "hasApiKey": true
+  }
+}
+```
+
+Jika belum ada konfigurasi, kembalikan `configured: false`, `endpoint: null`, `model: null`, dan `hasApiKey: false`. `hasApiKey` adalah status; API tidak mengembalikan key atau potongannya.
+
+**`PUT /api/admin/ai-provider`** — wajib sesi admin dan perlindungan CSRF/origin.
+
+```json
+{
+  "endpoint": "https://api.provider.example/v1/chat/completions",
+  "model": "nama-model",
+  "apiKey": "API_KEY_BARU"
+}
+```
+
+URL harus lengkap dan model harus mendukung tool calling. Pada konfigurasi pertama, `apiKey` wajib. Pada pembaruan, `apiKey` boleh tidak dikirim atau dikirim sebagai string kosong untuk mempertahankan key yang ada. Response `200` mengembalikan bentuk aman yang sama dengan `GET`; input tidak valid mengembalikan `400`, akses tanpa sesi `401`, dan kegagalan penyimpanan mengembalikan error generik tanpa nilai sensitif. Simpan API key terenkripsi dengan kunci yang disimpan terpisah di secret server; jangan mengekspos key atau service role ke browser. Jangan menulis secret pada `.env.example`, source, atau Git.
+
+Dimas menyediakan endpoint dan penyimpanan konfigurasi yang hanya dapat diakses admin. Mada menghubungkan agent ke konfigurasi server yang tersimpan; bila belum ada konfigurasi, gunakan fallback mock hanya untuk pengembangan lokal dan kembalikan error konfigurasi di production. Untuk sementara, agent menggunakan fallback mock tanpa API key; konfigurasi environment untuk provider AI tidak digunakan. Fallback ini hanya untuk pengujian lokal dan tidak boleh berpura-pura sebagai model asli. Halaman dan penyimpanan konfigurasi **belum diimplementasikan**.
+
+Karena endpoint akan diakses server, validasi URL di backend dan terapkan kebijakan outbound untuk mencegah akses tidak sah ke jaringan internal atau metadata server, termasuk melalui redirect dan resolusi DNS. Bila perlu mendukung provider lokal saat development, gunakan pengecualian khusus lingkungan development yang dikonfigurasi secara eksplisit. Jangan melakukan request ke provider hanya karena form dibuka.
+
 ## 9. Kontrak internal AI dan tools
 
 Tools berikut adalah fungsi server yang dipanggil model melalui tool calling, bukan endpoint publik. Agent percakapan tidak memiliki akses untuk menulis status atau memanggil layanan admin.
@@ -647,6 +683,7 @@ Gunakan UUID sebagai PK, timestamp UTC, FK dan indeks pada kolom pencarian. Simp
 | `notifications` | `id`, `complaint_update_id` FK unik, `status`, `attempt_count`, `provider_message_id`, `created_at`, `sent_at` |
 | `ai_evaluations` | `id`, `complaint_id` FK unik, `summary`, `has_new_learning`, `status`, `created_at` |
 | `persona_prompts` | `id`, `evaluation_id` FK, `type`, `content`, `is_active`, `created_at` |
+| `ai_provider_settings` | `id`, `endpoint`, `model`, `api_key_ciphertext`, `updated_by` FK ke admin, `updated_at`; satu konfigurasi aktif |
 | `idempotency_keys` | `key`, `operation`, `request_hash`, hasil terenkripsi/terbatas, `expires_at` |
 
 Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memiliki banyak bukti dan satu notifikasi; satu evaluasi dapat menghasilkan banyak prompt. Bukti minimal satu dan alasan penolakan ditegakkan dalam transaksi aplikasi. Simpan objek file terpisah dari database; database menyimpan kunci privatnya.
@@ -670,6 +707,8 @@ Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memil
 4. Sambungkan perubahan status dengan bukti, antrean WhatsApp, dan pelacakan.
 5. Sambungkan evaluation agent, deduplikasi dan injeksi persona.
 6. Uji alur ujung ke ujung, privasi API admin, retry/idempotensi, dan kegagalan layanan eksternal.
+
+
 
 
 
