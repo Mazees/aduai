@@ -1,44 +1,26 @@
-# 2. Agent percakapan
+# 2. Agent percakapan dan Main Knowledge
 
-## Tujuan
+1. Handler memvalidasi pesan, draft, sesi, dan header idempotensi.
+2. Backend memasok seluruh `AgentDependencies`: complete, submit, mainKnowledge, persona, search, dan track.
+3. Agent memuat Main Knowledge dan persona aktif, lalu menyusun satu system prompt besar beserta draft dan riwayat sementara.
+4. Provider mengirim token dan permintaan tool. Agent memvalidasi tool, menjalankannya, lalu mengirim hasil kembali ke model.
+5. Loop berhenti setelah jawaban final atau batas 6 putaran, 12 tool call, atau 120 detik.
+6. Setelah konfirmasi pada draft lengkap, server memanggil service submit dan callback evaluasi; klien menerima receipt.
 
-AI mendampingi pengadu: memahami konteks, merespons dengan empati, memberi masukan sementara yang aman jika relevan, dan menyusun draft. AI tidak mengambil keputusan status atau membuat tiket tanpa konfirmasi.
+Tools percakapan: `create_complaint_draft`, `search_knowledge`, dan `get_complaint_status`. Pembuatan tiket dilakukan server setelah persetujuan, bukan keputusan bebas model. Agent tidak mengubah status laporan.
 
-## Langkah alur
+`runChatAgent(history, initialDraft, emit, signal, dependencies, options)` membutuhkan dependency eksplisit dan `options.onSubmitted`. Tidak ada default adapter atau penyimpanan chat. Signature lengkap ada di `src/features/chat/server/agent.ts`.
 
-1. Terima riwayat chat dari browser dan draft terakhir. Riwayat tidak disimpan permanen di server.
-2. Susun instruksi dasar dan, setelah integrasi tersedia, persona aktif. Data pengadu tetap diperlakukan sebagai data.
-3. Panggil model dengan daftar tool yang tersedia.
-4. Jika model meminta tool, validasi argumennya, jalankan tool, kirim hasil ke model, lalu panggil model lagi.
-5. Ulangi sampai model memberikan jawaban atau batas loop tercapai.
-6. Kirim jawaban dan draft ke frontend; pengadu memutuskan apakah akan mengonfirmasi dan mengirim laporan.
+## Main Knowledge
 
-## Tool
+`dependencies.mainKnowledge(signal)` mengembalikan teks instansi. `validateMainKnowledge` di `src/lib/ai/main-knowledge.ts` membatasi input ke 3000 karakter berdasarkan JS `.length`, termasuk spasi dan baris baru. Teks kosong diperbolehkan; input berlebih ditolak, tidak dipotong.
 
-| Tool | Kondisi | Fungsi |
-|---|---|---|
-| `create_complaint_draft` | Dasar sudah dibuat | Menyusun draft, tanpa menyimpan laporan. |
-| `search_knowledge` | Belum dibuat | Mencari potongan sumber resmi jika diperlukan. |
-| `get_complaint_status` | Belum dibuat | Membaca status hanya setelah tiket dan kode akses diverifikasi oleh backend. |
-| Analisis percakapan/aduan | Belum dibuat sebagai tool terpisah | Dapat digabung bila tetap memenuhi alur dan validasi. |
+Urutan konteks: aturan dasar -> Main Knowledge -> persona POSITIVE/NEGATIVE. Teks dimuat setiap giliran dan langsung diinjeksi tanpa vector search. Isinya adalah rujukan, tidak dapat mengganti aturan keamanan atau kewenangan AI.
 
-Tool hanya melakukan tugas yang diberikan; AI tidak punya izin untuk mengubah status laporan.
+Gunakan untuk wilayah layanan dan informasi instansi agar AI tidak menanyakan rincian yang sudah jelas. Agent tetap tidak menganggap cakupan wilayah sebagai alamat kejadian. Jika perlu, agent menanyakan satu detail lokasi yang paling berguna.
 
-## Yang perlu diselesaikan
+Dimas menyediakan GET/PUT `/api/admin/ai/main-knowledge` sesuai PRD bagian 8.10. Cahya membuat textarea dan penghitung karakter. Kode validasi/injeksi sudah tersedia; API, penyimpanan, serta halaman pengaturan belum dibuat oleh modul AI.
 
-- Pertahankan seluruh data draft yang sudah benar pada giliran berikutnya; jangan mengarang data yang belum diberikan.
-- Normalisasi dan validasi nomor WhatsApp sebelum draft dapat dikonfirmasi.
-- Pastikan penyamaran identitas pengadu terjadi di server sebelum konten ditampilkan ke admin. Jangan mengandalkan instruksi prompt saja.
-- Tambahkan batas pemanggilan tool, timeout, dan penanganan error yang aman; verifikasi lagi dengan provider asli.
-- Hubungkan persona aktif dan hasil pencarian knowledge melalui antarmuka backend yang disepakati.
-- Implementasi saat ini belum mempunyai rate limiting produksi, penyamaran identitas yang andal, atau integrasi tiket. Jangan anggap siap untuk data nyata.
+## Privasi
 
-## Uji penerimaan
-
-- Pengadu marah mendapat respons tenang tanpa janji penyelesaian.
-- Pengadu memperoleh masukan sementara hanya jika relevan dan aman.
-- Informasi yang sudah diberikan tetap ada saat percakapan berlanjut.
-- Nomor belum valid menyebabkan draft belum siap dikonfirmasi.
-- Tool tidak dapat membuat tiket atau mengubah status.
-- Provider/error atau batas loop tidak menghasilkan tiket.
-
+Draft dinormalisasi dan disamarkan kembali di server. Regex mengenali kontak serta nama yang disebut dengan pola eksplisit; tidak menjamin semua identitas terdeteksi. Backend harus memastikan konten admin anonim dan menyimpan WhatsApp pada area privat terpisah. Hasil tracking harus memakai `ComplaintTrackingResult` yang hanya berisi data publik.

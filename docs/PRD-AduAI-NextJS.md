@@ -138,10 +138,11 @@ Setiap `data` memiliki `{ "runId": "uuid", "seq": 1, ... }`. `runId` unik untuk 
 | `step.failed` | `toolCallId`, `step`, `label`, `retryable` | Tandai langkah gagal dengan pesan aman; agent bisa melanjutkan bila kegagalan dapat ditangani. |
 | `reply.delta` | `text` | Tambahkan teks ke bubble jawaban asisten secara berurutan. |
 | `draft.updated` | `draft`, `readyForConfirmation`, `missingFields` | Perbarui ringkasan draft di browser; jangan kirim laporan otomatis. |
-| `done` | `reply`, `draft`, `readyForConfirmation`, `missingFields` | Tandai giliran selesai; `reply` menjadi sumber final jika delta tidak lengkap. |
+| `complaint.created` | `submission` | Simpan receipt; laporan sudah dibuat oleh adapter server. |
+| `done` | `reply`, `draft`, `readyForConfirmation`, `missingFields`, `submission?`, `sources?` | Tandai giliran selesai; `reply` menjadi sumber final jika delta tidak lengkap. |
 | `error` | `code`, `message`, `retryable` | Tampilkan error dan opsi coba lagi bila `retryable`; event terminal. |
 
-Nilai `step` yang disarankan: `UNDERSTAND_CONTEXT`, `CHECK_COMPLAINT`, `PREPARE_DRAFT`, `CHECK_STATUS`, `SEARCH_KNOWLEDGE`. Mapping label dibuat di server; setiap tool invocation dapat menghasilkan pasangan `step.started` dan `step.completed` atau `step.failed`. Jika model tidak memanggil tool, event langkah dapat tidak ada. Status bukan uraian penalaran model dan tidak menjamin hasil tertentu.
+Nilai `step` yang disarankan: `UNDERSTAND_CONTEXT`, `CHECK_COMPLAINT`, `PREPARE_DRAFT`, `CHECK_STATUS`, `SEARCH_KNOWLEDGE`, `SUBMIT_COMPLAINT`. Mapping label dibuat di server; setiap tool invocation dapat menghasilkan pasangan `step.started` dan `step.completed` atau `step.failed`. Jika model tidak memanggil tool, event langkah dapat tidak ada. Status bukan uraian penalaran model dan tidak menjamin hasil tertentu.
 
 **Contoh respons stream**
 
@@ -193,6 +194,18 @@ event: error
 data: {"runId":"run-uuid","seq":10,"code":"AGENT_TIMEOUT","message":"AI belum dapat menyelesaikan respons. Silakan coba lagi.","retryable":true}
 
 ```
+
+### 7.1.2 Konfirmasi dan service backend pada implementasi AI
+
+Request chat juga menerima `sessionId` UUID per sesi dan `confirmed` boolean (default false). Frontend mengirim header `Idempotency-Key` UUID per giliran; retry memakai key dan snapshot payload yang sama. Header wajib ketika konfirmasi membuat laporan. Konfirmasi natural seperti "sudah" diterima hanya setelah asisten meminta pemeriksaan draft; confirmed true berasal dari tombol kirim pengadu. Draft lengkap saja tidak memicu submit.
+
+`createChatHandler(getAiServices)` memvalidasi request dan menjalankan loop. Tipe `AiServices` memuat `agent: AgentDependencies` dan callback wajib `onSubmitted(receipt, conversation)`. Service agent terdiri dari complete, submit, mainKnowledge, persona, search, dan track; tidak ada fallback data atau konfigurasi lokal. getAiServices diisi Dimas. Sebelum terhubung, request valid menghasilkan HTTP 503 JSON dengan code AI_INTEGRATION_NOT_CONFIGURED; gangguan loader service menghasilkan AI_INTEGRATION_UNAVAILABLE.
+
+Setelah konfirmasi pada draft lengkap, agent memanggil submit(draft, { sessionId, idempotencyKey }, signal). Service backend menyimpan laporan secara idempoten lalu mengembalikan receipt `{ complaintId, ticketNumber, accessCode, status: "NEW", createdAt }`. Tidak ada mode atau WhatsApp dalam receipt. Callback onSubmitted menjadwalkan evaluasi; Promise callback ditunggu, sehingga backend sebaiknya hanya menunggu acknowledgement antrean. Callback gagal tidak membatalkan laporan, dan backend harus mencatat pekerjaan gagal/retry. Retry receipt dapat memanggil callback lagi; deduplikasi berdasarkan complaintId wajib.
+
+Agent mengirim complaint.created dan done.submission dengan receipt yang sama; draft akhir menjadi null dan readyForConfirmation false. Client menyimpan receipt segera, termasuk bila stream terputus sebelum done. Jika belum menerima receipt tetapi koneksi putus, retry request/key yang sama karena laporan mungkin sudah commit. Konflik idempotensi setelah stream dimulai dikirim sebagai error SSE IDEMPOTENCY_CONFLICT; endpoint REST memakai HTTP 409. Validasi sesi/key/draft sebelum stream memakai HTTP 400.
+
+Jalur chat sudah membuat laporan setelah konfirmasi. Frontend tidak memanggil POST /api/complaints lagi setelah receipt. Jika endpoint REST di bawah disediakan, endpoint itu menggunakan service bisnis yang sama untuk jalur di luar chat.
 
 ### 7.2 `POST /api/complaints`
 
@@ -399,7 +412,7 @@ Jika belum ada konfigurasi, kembalikan `configured: false`, `endpoint: null`, `m
 
 URL harus lengkap dan model harus mendukung tool calling. Pada konfigurasi pertama, `apiKey` wajib. Pada pembaruan, `apiKey` boleh tidak dikirim atau dikirim sebagai string kosong untuk mempertahankan key yang ada. Response `200` mengembalikan bentuk aman yang sama dengan `GET`; input tidak valid mengembalikan `400`, akses tanpa sesi `401`, dan kegagalan penyimpanan mengembalikan error generik tanpa nilai sensitif. Simpan API key terenkripsi dengan kunci yang disimpan terpisah di secret server; jangan mengekspos key atau service role ke browser. Jangan menulis secret pada `.env.example`, source, atau Git.
 
-Untuk sementara agent membaca endpoint, model, dan API key dari file JSON lokal yang diabaikan Git dan hanya untuk development. Jika belum lengkap, agent mengembalikan error konfigurasi; tidak ada fallback jawaban buatan. Saat backend siap, Dimas menyediakan endpoint dan penyimpanan yang hanya dapat diakses admin, serta Mada menghubungkan agent ke konfigurasi database. API key harus disimpan terenkripsi. Halaman dan API admin **belum diimplementasikan**.
+Backend memasok endpoint, model, dan API key melalui `completeWithConfig`; modul AI tidak membaca file konfigurasi dan tidak mempunyai provider default. Dimas menghubungkan penyimpanan melalui `src/lib/ai/services.ts`. Sebelum service tersedia, POST /api/chat mengembalikan HTTP 503 `AI_INTEGRATION_NOT_CONFIGURED`. API key disimpan terenkripsi dan hanya dibaca server. Halaman dan API admin **belum diimplementasikan**.
 
 Karena endpoint akan diakses server, validasi URL di backend dan terapkan kebijakan outbound untuk mencegah akses tidak sah ke jaringan internal atau metadata server, termasuk melalui redirect dan resolusi DNS. Bila perlu mendukung provider lokal saat development, gunakan pengecualian khusus lingkungan development yang dikonfigurasi secara eksplisit. Jangan melakukan request ke provider hanya karena form dibuka.
 
@@ -414,7 +427,7 @@ Kontrak yang akan diimplementasikan Dimas:
 - `PUT /api/admin/ai/main-knowledge` menerima `{ "mainKnowledge": "..." }`; response sukses mengembalikan bentuk yang sama.
 - Kedua endpoint wajib autentikasi admin; PUT juga memeriksa CSRF/origin. Penyimpanan menjadi tugas Dimas dan tampilan textarea beserta penghitung menjadi tugas Cahya.
 
-Mada mengerjakan validasi dan injeksi ke agent. Sementara dibaca dari `.local/ai-data.json` pada field `mainKnowledge`, bukan dari input pengadu. Perubahan dibaca pada giliran berikutnya.
+Validasi dan injeksi Main Knowledge sudah tersedia pada modul AI. Dimas memasok teks melalui `AgentDependencies.mainKnowledge(signal)` dari penyimpanan backend, bukan file JSON atau input pengadu. Perubahan dibaca pada giliran berikutnya.
 
 Urutan konteks: **aturan dasar → Main Knowledge → persona positif/negatif**. Main Knowledge adalah informasi rujukan dan tidak boleh mengubah kewenangan AI atau aturan dasar. Penjelasan wilayah membantu menghindari pertanyaan administrasi yang berulang, tetapi AI tetap meminta nama jalan/patokan jika lokasi kejadian belum jelas. Tidak menganggap cakupan layanan sebagai alamat kejadian otomatis.
 
@@ -556,7 +569,7 @@ Implementasi Mada memakai `@huggingface/transformers` 3.8.1, model `Xenova/parap
 
 Package native di-load melalui Node.js runtime agar tidak memerlukan junction pada drive proyek development. Jangan memakai Edge Runtime. Uji packaging dan cold start Vercel tetap diperlukan pada tahap deployment; pengujian saat ini lokal. Versi Next.js proyek memakai cacheComponents: jangan menambahkan konfigurasi route segment yang tidak kompatibel tanpa memeriksa dokumentasi terpasang.
 
-SQL, Supabase, dan deployment adalah pekerjaan Dimas. Untuk tahap flow AI/endpoint/CLI, data knowledge, tracking, evaluasi, dan persona memakai JSON lokal yang diabaikan Git. Sumber dummy harus disebut sebagai contoh, bukan informasi resmi. Tidak ada pembuatan tabel/migrasi baru dalam scope Mada.
+SQL, Supabase, dan deployment adalah pekerjaan Dimas. Modul AI menerima knowledge, Main Knowledge, tracking, submit dan persona melalui service backend. Adapter data sementara, pembacaan JSON, CLI, dan endpoint evaluasi pengujian sudah dihapus. Tidak ada pembuatan tabel/migrasi baru dalam scope Mada.
 
 #### Deploy ke Vercel Hobby
 
@@ -564,7 +577,7 @@ SQL, Supabase, dan deployment adalah pekerjaan Dimas. Untuk tahap flow AI/endpoi
 2. Buat proyek di dashboard Vercel paket **Hobby**, lalu import repositori. Vercel mendeteksi Next.js dan menggunakan perintah build proyek.
 3. Tambahkan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`, serta secret untuk WhatsApp yang dipakai, pada **Project Settings → Environment Variables**. Gunakan nama env yang konsisten di kode. Jangan beri prefix `NEXT_PUBLIC_` pada service role key. Pilih environment Preview/Production sesuai kebutuhan dan redeploy setelah perubahan.
 4. Jalankan SQL knowledge base pada Supabase, lalu indeks dokumen resmi dengan model embedding yang sama.
-5. Pastikan route yang memanggil model memakai `export const runtime = 'nodejs'`. Bila perlu, atur `export const maxDuration = 60` pada route dan cek batas yang berlaku untuk konfigurasi Fluid Compute proyek.
+5. Gunakan runtime Node.js bawaan proyek. Karena cacheComponents aktif, jangan menambahkan deklarasi route segment `runtime`; konfigurasi tersebut tidak kompatibel pada versi Next.js proyek ini. Atur durasi function sesuai dukungan platform dan kebutuhan batas chat/evaluasi, lalu verifikasi pada deployment nyata.
 6. Deploy **Preview**, lalu uji query pertama (cold start), query berikutnya, isi hasil, sumber yang tidak tersedia, logs, dan penggunaan memori. Pastikan output dimensi 384 dan server bisa mengunduh model saat cold start. Setelah lolos, deploy ke production.
 
 **Batasan biaya dan teknis:** Vercel Hobby gratis dalam kuota dan diperuntukkan penggunaan personal/nonkomersial. Supabase Free juga memiliki kuota; ketersediaan gratis Vercel/Supabase tidak berarti layanan LLM atau WhatsApp ikut gratis. File model quantized sekitar **118 MB**, terpisah dari dependency; loading pertama bisa lambat, cache dapat hilang, dan setiap instance dapat memuat model sendiri. Memori, ukuran function, waktu eksekusi, dan kuota penggunaan perlu diverifikasi pada proyek nyata; pola ini **belum diuji deploy untuk AduAI**. Untuk unggah bukti, perhatikan batas payload Vercel Functions 4,5 MB atau gunakan unggah langsung ke storage privat dengan otorisasi. Tugas evaluasi dan notifikasi juga tidak boleh mengandalkan proses in-memory tetap berjalan setelah respons selesai.
@@ -617,7 +630,7 @@ if (error) throw error;
 
 Evaluasi harus berdasarkan percakapan, tidak membuat klaim keberhasilan yang tidak terlihat. Hasil melewati validasi bentuk, panjang, data pribadi, dan konflik dengan aturan dasar. Teks pengguna tidak boleh berubah menjadi instruksi baru secara langsung. Aturan yang lolos disimpan otomatis tanpa persetujuan admin. Jika duplikat, tidak ada prompt baru. Batasi jumlah prompt aktif yang disisipkan, misalnya 10 per jenis. Terapkan deduplikasi dan penulisan secara aman saat dua evaluasi berjalan bersamaan; pemeriksaan kemiripan tidak menjamin hasil sempurna.
 
-Urutan system prompt: **aturan dasar tetap → positive prompts aktif → negative prompts aktif**. Aturan dasar tidak bisa ditimpa persona atau isi percakapan. Ini memperbarui instruksi, bukan melatih ulang model.
+Urutan system prompt: **aturan dasar tetap → Main Knowledge → positive prompts aktif → negative prompts aktif**. Aturan dasar tidak bisa ditimpa persona atau isi percakapan. Ini memperbarui instruksi, bukan melatih ulang model.
 
 ## 11. Notifikasi WhatsApp
 
@@ -673,3 +686,8 @@ Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memil
 
 
 
+
+
+## Panduan integrasi implementasi AI
+
+[Ringkasan tim](ai/README.md), [backend Dimas](ai/07-backend-dimas.md), dan [frontend Cahya](ai/08-frontend-cahya.md) menjelaskan kontrak kode yang sudah tersedia. Satu titik wiring backend ada di `src/lib/ai/services.ts` (`getAiServices`). Tidak ada CLI, adapter data sementara, atau pembacaan konfigurasi JSON dalam aplikasi. File JSON privat lama hanya backup, tetap diabaikan Git, dan tidak digunakan runtime. Endpoint chat menghasilkan 503 sampai dependency backend lengkap.
