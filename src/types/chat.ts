@@ -3,6 +3,7 @@ import type { ComplaintDraft, SubmissionReceipt } from "./complaint";
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  attachments?: { name: string; type: string; url?: string }[];
 }
 
 export interface ChatRequest {
