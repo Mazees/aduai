@@ -84,3 +84,25 @@ export interface AiProviderConfig {
   hasApiKey: boolean;
   updatedAt?: string;
 }
+
+// Receipt hanya dibuat adapter penyimpanan setelah laporan benar-benar tersimpan.
+export interface SubmissionReceipt {
+  complaintId: string;
+  ticketNumber: string;
+  accessCode: string;
+  status: "NEW";
+  createdAt: string;
+}
+
+export interface SubmissionContext {
+  sessionId: string;
+  idempotencyKey: string;
+}
+
+// Hasil publik sesudah tiket dan kode akses diverifikasi backend.
+export interface ComplaintTrackingResult {
+  ticketNumber: string;
+  status: ComplaintStatus;
+  summary: string;
+  updates: { status: ComplaintStatus; note: string; createdAt: string }[];
+}

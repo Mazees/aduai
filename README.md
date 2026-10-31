@@ -1,6 +1,6 @@
 # AduAI
 
-Fondasi aplikasi pengaduan masyarakat berbasis Next.js. Proyek ini masih dalam tahap awal: chat AI, autentikasi, penyimpanan aduan, WhatsApp, dan self-learning belum terhubung.
+Aplikasi pengaduan masyarakat berbasis Next.js. Modul AI menerima dependency backend secara eksplisit: provider, chat streaming, draft, Main Knowledge, knowledge dan evaluasi persona. POST /api/chat mengembalikan 503 sampai backend dihubungkan. Panduan: [integrasi tim](docs/ai/README.md).
 
 ## Menjalankan proyek
 
@@ -38,4 +38,3 @@ Setiap fitur dikerjakan sesuai PRD. Jangan menyimpan chat secara permanen atau m
 - Cahya: antarmuka pengadu dan admin.
 
 Tidak ada layanan eksternal yang diperlukan untuk menjalankan kerangka awal. Isi `.env.local` ketika integrasi terkait mulai dikembangkan. Variabel contoh tidak berisi kredensial.
-
