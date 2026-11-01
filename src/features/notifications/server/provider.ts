@@ -1,112 +1,122 @@
 import 'server-only';
-import crypto from 'node:crypto';
-import type { WhatsAppProviderConfig, WhatsAppSendInput, WhatsAppSendResult } from './types';
+import type { WhatsAppSendInput, WhatsAppSendResult } from './types';
 
-/**
- * Menyembunyikan nomor WhatsApp di log (misal: +6281234567890 -> +62812****7890)
- */
-function maskWhatsapp(phone: string): string {
-  if (phone.length <= 6) return '****';
-  return `${phone.slice(0, 5)}****${phone.slice(-3)}`;
+const FONNTE_BASE_URL = 'https://api.fonnte.com';
+
+type FonnteResponse = {
+  status?: boolean;
+  reason?: string;
+  id?: string[];
+  requestid?: number;
+  url?: string;
+  device?: string;
+  device_status?: string;
+  quota?: string | number;
+};
+
+export type WhatsAppDeviceStatus = {
+  configured: boolean;
+  connected: boolean;
+  device: string | null;
+  quota: string | number | null;
+  error?: string;
+};
+
+export type WhatsAppQrResult = {
+  success: boolean;
+  imageDataUrl?: string;
+  error?: string;
+};
+
+function getToken(): string | null {
+  const token = process.env.WHATSAPP_API_TOKEN?.trim();
+  if (!token || /^(mock|demo|your[-_ ])/i.test(token)) return null;
+  return token;
 }
 
-/**
- * Membaca konfigurasi WhatsApp Provider
- */
-export function getWhatsAppConfig(): WhatsAppProviderConfig {
-  const apiUrl = (process.env.WHATSAPP_API_URL || '').trim();
-  const apiToken = (process.env.WHATSAPP_API_TOKEN || '').trim();
-
-  const isMock =
-    !apiUrl ||
-    !apiToken ||
-    apiToken === 'mock' ||
-    apiToken === 'demo' ||
-    apiToken.includes('your-whatsapp-api-token');
-
-  return {
-    apiUrl: apiUrl || 'https://api.whatsapp.mock/v1/send',
-    apiToken,
-    isMock,
-  };
+function providerError(response: FonnteResponse): string {
+  const reason = response.reason?.toLowerCase() ?? '';
+  if (reason.includes('token')) return 'INVALID_TOKEN';
+  if (reason.includes('disconnect')) return 'DEVICE_DISCONNECTED';
+  if (reason.includes('quota')) return 'QUOTA_EXHAUSTED';
+  if (reason.includes('already connect')) return 'ALREADY_CONNECTED';
+  return 'GATEWAY_REJECTED';
 }
 
-/**
- * Mengirim pesan WhatsApp ke nomor tujuan
- * Mendukung mode Mock/Simulasi otomatis jika token belum disetel di .env.local
- */
-export async function sendWhatsAppMessage(
-  input: WhatsAppSendInput,
-  signal?: AbortSignal
-): Promise<WhatsAppSendResult> {
-  const config = getWhatsAppConfig();
-  const maskedTo = maskWhatsapp(input.to);
+async function requestFonnte(path: '/send' | '/device' | '/qr', body: FormData): Promise<FonnteResponse> {
+  const token = getToken();
+  if (!token) throw new Error('WA_NOT_CONFIGURED');
 
-  // 1. Mode Simulasi / Mock untuk Local Dev & Demo Offline
-  if (config.isMock) {
-    const mockId = `mock-wa-${crypto.randomUUID()}`;
-    console.log(`[WhatsApp Provider] [SIMULASI] Pesan ke ${maskedTo} berhasil disimulasikan (ID: ${mockId})`);
-    return {
-      success: true,
-      messageId: mockId,
-      simulated: true,
-    };
+  const response = await fetch(`${FONNTE_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { Authorization: token },
+    body,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) throw new Error('GATEWAY_UNAVAILABLE');
+  const data: unknown = await response.json().catch(() => null);
+  if (!data || typeof data !== 'object') throw new Error('GATEWAY_INVALID_RESPONSE');
+  return data as FonnteResponse;
+}
+
+/** Status ini berasal dari Fonnte, bukan dari proses WhatsApp dalam Vercel. */
+export async function getWhatsAppDeviceStatus(): Promise<WhatsAppDeviceStatus> {
+  if (!getToken()) {
+    return { configured: false, connected: false, device: null, quota: null, error: 'WA_NOT_CONFIGURED' };
   }
 
-  // 2. Mode Live Gateway (Fonnte, Wablas, atau Generic REST Gateway)
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10 detik batas waktu
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Authorization: config.apiToken.startsWith('Bearer ') ? config.apiToken : `Bearer ${config.apiToken}`,
-    };
-
-    // Payload fleksibel yang mendukung Fonnte, Wablas, & generic REST
-    const payload = {
-      target: input.to,
-      phone: input.to,
-      to: input.to,
-      message: input.message,
-      text: input.message,
-    };
-
-    const res = await fetch(config.apiUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: signal || controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => 'Status: ' + res.status);
-      console.warn(`[WhatsApp Provider] Gateway mengembalikan error HTTP ${res.status}: ${errText.slice(0, 100)}`);
-      return {
-        success: false,
-        error: `HTTP_${res.status}`,
-      };
+    const data = await requestFonnte('/device', new FormData());
+    if (data.status !== true) {
+      return { configured: true, connected: false, device: null, quota: null, error: providerError(data) };
     }
-
-    const data = await res.json().catch(() => ({}));
-    const messageId =
-      data.id || data.messageId || data.message_id || `wa-${crypto.randomUUID()}`;
-
-    console.log(`[WhatsApp Provider] Pesan ke ${maskedTo} berhasil dikirim (ID: ${messageId})`);
-
     return {
-      success: true,
-      messageId: String(messageId),
-      simulated: false,
+      configured: true,
+      connected: data.device_status === 'connect',
+      device: typeof data.device === 'string' ? data.device : null,
+      quota: data.quota ?? null,
     };
-  } catch (err) {
-    const msg = (err as Error).message || 'Koneksi gateway gagal';
-    console.error(`[WhatsApp Provider] Gagal mengirim pesan ke ${maskedTo}:`, msg);
-    return {
-      success: false,
-      error: msg,
-    };
+  } catch (error) {
+    return { configured: true, connected: false, device: null, quota: null, error: error instanceof Error ? error.message : 'GATEWAY_UNAVAILABLE' };
+  }
+}
+
+export async function getWhatsAppQr(): Promise<WhatsAppQrResult> {
+  if (!getToken()) return { success: false, error: 'WA_NOT_CONFIGURED' };
+
+  try {
+    const body = new FormData();
+    body.set('type', 'qr');
+    const data = await requestFonnte('/qr', body);
+    if (data.status !== true || typeof data.url !== 'string' || !/^[A-Za-z0-9+/=]+$/.test(data.url)) {
+      return { success: false, error: providerError(data) };
+    }
+    return { success: true, imageDataUrl: `data:image/png;base64,${data.url}` };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'GATEWAY_UNAVAILABLE' };
+  }
+}
+
+/** Fonnte menerima pesan ke antrean; hasil ini belum membuktikan pesan dibaca. */
+export async function sendWhatsAppMessage(input: WhatsAppSendInput): Promise<WhatsAppSendResult> {
+  if (!getToken()) return { success: false, error: 'WA_NOT_CONFIGURED' };
+  if (!/^\+[1-9]\d{7,14}$/.test(input.to) || !input.message.trim()) {
+    return { success: false, error: 'INVALID_MESSAGE' };
+  }
+
+  try {
+    const body = new FormData();
+    body.set('target', input.to.slice(1));
+    body.set('message', input.message);
+    body.set('countryCode', '0');
+    body.set('connectOnly', 'true');
+    const data = await requestFonnte('/send', body);
+    if (data.status !== true) return { success: false, error: providerError(data) };
+    const id = Array.isArray(data.id) ? data.id[0] : undefined;
+    return { success: true, messageId: id ?? (data.requestid ? String(data.requestid) : undefined) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'GATEWAY_UNAVAILABLE' };
   }
 }

@@ -14,6 +14,7 @@ import {
   Menu,
   X,
   MessageSquare,
+  MessageCircle,
 } from "lucide-react";
 import { MockService } from "@/lib/mock-service";
 
@@ -39,6 +40,7 @@ function AdminLayoutInner({ children }: AdminLayoutProps) {
     { href: "/admin/aduan", label: "Daftar aduan", icon: Inbox },
     { href: "/admin/pembelajaran", label: "Pembelajaran AI", icon: BookOpen },
     { href: "/admin/pengaturan/ai", label: "Pengaturan AI", icon: Sliders },
+    { href: "/admin/pengaturan/whatsapp", label: "WhatsApp", icon: MessageCircle },
   ];
 
   const handleLogout = () => {
@@ -164,3 +166,5 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     </Suspense>
   );
 }
+
+
