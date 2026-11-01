@@ -48,12 +48,12 @@ export interface ComplaintUpdate {
 export interface Complaint {
   id: string;
   ticketNumber: string;
-  accessCode: string; // stored hashed on server; stored in mock for guest verification
+  accessCode: string; // disimpan aman di server; tidak diekspos sembarangan
   description: string;
   category: string;
   aiSummary: string;
   status: ComplaintStatus;
-  whatsapp?: string; // only for guest confirmation, NEVER exposed to admin view
+  whatsapp?: string; // hanya untuk konfirmasi pengadu, TIDAK PERNAH diekspos ke tampilan admin
   createdAt: string;
   updatedAt: string;
   updates: ComplaintUpdate[];
@@ -88,9 +88,9 @@ export interface AiProviderConfig {
 // Receipt hanya dibuat adapter penyimpanan setelah laporan benar-benar tersimpan.
 export interface SubmissionReceipt {
   complaintId: string;
-  ticketNumber: string;
-  accessCode: string;
-  status: "NEW";
+  ticketNumber: string; // Nomor tiket 6 digit
+  accessCode?: string;  // Opsional: pelacakan publik kini cukup menggunakan nomor tiket
+  status: ComplaintStatus;
   createdAt: string;
 }
 
@@ -99,7 +99,7 @@ export interface SubmissionContext {
   idempotencyKey: string;
 }
 
-// Hasil publik sesudah tiket dan kode akses diverifikasi backend.
+// Hasil publik sesudah tiket diverifikasi backend.
 export interface ComplaintTrackingResult {
   ticketNumber: string;
   status: ComplaintStatus;
