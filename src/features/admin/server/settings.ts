@@ -1,10 +1,9 @@
 import 'server-only';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { decryptSecret, encryptSecret } from '@/lib/security';
 import type { ProviderConfig } from '@/features/chat/server/provider';
 
 /**
- * Membaca konfigurasi AI Provider dari database
+ * Membaca konfigurasi AI Provider dari database (tabel configuration singleton 'default')
  * Fallback ke environment variable jika belum dikonfigurasi di dashboard admin
  */
 export async function readProviderConfig(): Promise<ProviderConfig> {
@@ -17,11 +16,10 @@ export async function readProviderConfig(): Promise<ProviderConfig> {
       .maybeSingle();
 
     if (!error && data && data.ai_endpoint && data.ai_model && data.ai_api_key_ciphertext) {
-      const apiKey = decryptSecret(data.ai_api_key_ciphertext);
       return {
         endpoint: data.ai_endpoint,
         model: data.ai_model,
-        apiKey,
+        apiKey: data.ai_api_key_ciphertext,
       };
     }
   } catch (err) {
@@ -63,10 +61,9 @@ export async function saveProviderConfig(config: {
   endpoint: string;
   model: string;
   apiKey: string;
-  adminId: string;
+  adminId?: string | null;
 }): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const ciphertext = encryptSecret(config.apiKey);
 
   await supabase
     .from('configuration')
@@ -74,7 +71,7 @@ export async function saveProviderConfig(config: {
       id: 'default',
       ai_endpoint: config.endpoint,
       ai_model: config.model,
-      ai_api_key_ciphertext: ciphertext,
+      ai_api_key_ciphertext: config.apiKey,
       updated_by: config.adminId || null,
       updated_at: new Date().toISOString(),
     });

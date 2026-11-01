@@ -1,16 +1,10 @@
-import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { readProviderConfig } from '@/features/admin/server/settings';
 import { getWhatsAppConfig } from '@/features/notifications/server/provider';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.authorized) {
-      return auth.response;
-    }
-
     const supabase = getSupabaseAdmin();
     const timestamp = new Date().toISOString();
 

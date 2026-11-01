@@ -1,4 +1,3 @@
-import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
@@ -7,11 +6,6 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.authorized) {
-      return auth.response;
-    }
-
     const { id } = await params;
     if (!id) {
       return ApiErrors.badRequest('ID bukti tidak valid');

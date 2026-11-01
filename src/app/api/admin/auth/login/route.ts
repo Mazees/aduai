@@ -1,13 +1,10 @@
-import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { createAdminToken } from '@/lib/security';
 import { successResponse, ApiErrors } from '@/lib/api/response';
-import { setAdminSessionCookie } from '@/lib/auth/admin-guard';
 
 const LoginSchema = z.object({
   email: z.string().email('Format email tidak valid'),
-  password: z.string().min(6, 'Password minimal 6 karakter'),
+  password: z.string().min(1, 'Password wajib diisi'),
 });
 
 export async function POST(req: Request) {
@@ -32,7 +29,6 @@ export async function POST(req: Request) {
 
     if (error || !data?.user) {
       console.warn('[Supabase Auth Login Failed]:', error?.message);
-      // Pesan generik untuk perlindungan keamanan
       return ApiErrors.unauthorized('Email atau password tidak sesuai.');
     }
 
@@ -43,25 +39,20 @@ export async function POST(req: Request) {
       user.email?.split('@')[0] ||
       'Admin';
 
-    // Buat token session admin
-    const token = createAdminToken({
-      id: user.id,
-      email: user.email || email,
-      name: adminName,
-    });
-
-    const response = successResponse({
-      admin: {
+    return successResponse({
+      user: {
         id: user.id,
         email: user.email,
         name: adminName,
       },
+      session: data.session
+        ? {
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+            expires_at: data.session.expires_at,
+          }
+        : null,
     });
-
-    // Simpan token ke dalam Cookie HttpOnly & SameSite
-    setAdminSessionCookie(response, token);
-
-    return response;
   } catch (err) {
     console.error('[Auth Login Fatal]', err);
     return ApiErrors.internal('Gagal memproses autentikasi');
