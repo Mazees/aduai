@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   title: "AduAI | Ruang pengaduan warga",
   description: "Ceritakan masalah di sekitar Anda, periksa ringkasan aduan, dan ikuti perkembangannya melalui nomor tiket.",
   icons: {
-    icon: "/favicon.ico",
+    icon: "/icon.png",
   },
 };
 

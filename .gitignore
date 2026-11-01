@@ -54,3 +54,4 @@ next-env.d.ts
 .codex/
 graphify-out/
 .graphifyignore
+/outputs
