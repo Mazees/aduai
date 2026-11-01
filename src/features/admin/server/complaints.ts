@@ -132,7 +132,14 @@ export async function listComplaints(params: {
     throw new Error(`DATABASE_ERROR: ${error?.message}`);
   }
 
-  const items: AdminComplaintListItem[] = data.map((row: any) => ({
+  const items: AdminComplaintListItem[] = (data as {
+    id: string;
+    ticket_number: string;
+    category: string | null;
+    ai_summary: string;
+    status: ComplaintStatus;
+    created_at: string;
+  }[]).map((row) => ({
     id: row.id,
     ticketNumber: row.ticket_number,
     category: row.category,
@@ -170,15 +177,23 @@ export async function getComplaintDetail(id: string): Promise<AdminComplaintDeta
   }
 
   // 2. Ambil riwayat pembaruan status & bukti dari tabel evidence (5 tabel Revisi 003)
-  const { data: evidenceList, error: evErr } = await supabase
+  const { data: evidenceList } = await supabase
     .from('evidence')
     .select('id, status, note, storage_path, file_name, mime_type, size_bytes, created_at')
     .eq('complaint_id', id)
     .order('created_at', { ascending: true });
 
-  const formattedUpdates = (evidenceList || []).map((e: any) => ({
+  const formattedUpdates = ((evidenceList || []) as {
+    id: string;
+    status: ComplaintStatus;
+    note: string | null;
+    created_at: string;
+    file_name: string;
+    mime_type: string;
+    size_bytes: number;
+  }[]).map((e) => ({
     id: e.id,
-    status: e.status as ComplaintStatus,
+    status: e.status,
     note: e.note,
     rejectionReason: e.status === 'REJECTED' ? e.note : null,
     createdAt: e.created_at,

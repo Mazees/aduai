@@ -1,9 +1,9 @@
 import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-let cachedClient: SupabaseClient<any> | null = null;
+let cachedClient: SupabaseClient | null = null;
 
-export function getSupabaseAdmin(): SupabaseClient<any> {
+export function getSupabaseAdmin(): SupabaseClient {
   if (cachedClient) {
     return cachedClient;
   }

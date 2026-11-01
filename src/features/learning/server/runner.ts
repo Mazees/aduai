@@ -19,6 +19,7 @@ export async function runEvaluationJob(
   signal?: AbortSignal
 ): Promise<{ status: 'SUCCESS' | 'SKIPPED' | 'FAILED'; error?: string }> {
   try {
+    if (signal?.aborted) throw signal.reason;
     const config = await readProviderConfig();
     const complete: Completion = (messages, tools, sig, onText) =>
       completeWithConfig(config, messages, tools, sig, onText);

@@ -1,4 +1,5 @@
 import { updateComplaintStatus } from '@/features/admin/server/complaints';
+import { requireAdminAuth } from '@/lib/supabase/auth';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 import type { ComplaintStatus } from '@/types/complaint';
 
@@ -7,6 +8,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdminAuth(req);
+    if (auth.error) {
+      return auth.error;
+    }
+
     const { id: complaintId } = await params;
     if (!complaintId) {
       return ApiErrors.badRequest('ID laporan tidak valid');
@@ -16,7 +22,7 @@ export async function POST(
     let targetStatus: ComplaintStatus;
     let note: string | undefined;
     let rejectionReason: string | undefined;
-    let filesData: { buffer: Buffer; fileName: string; mimeType: string; sizeBytes: number }[] = [];
+    const filesData: { buffer: Buffer; fileName: string; mimeType: string; sizeBytes: number }[] = [];
 
     const idempotencyKey =
       req.headers.get('idempotency-key') ||
@@ -70,7 +76,7 @@ export async function POST(
     try {
       const result = await updateComplaintStatus({
         complaintId,
-        adminId: 'admin',
+        adminId: auth.user.id,
         targetStatus,
         note,
         rejectionReason,
@@ -79,8 +85,8 @@ export async function POST(
       });
 
       return successResponse(result, 201);
-    } catch (bizErr: any) {
-      const msg = bizErr.message || '';
+    } catch (bizErr: unknown) {
+      const msg = bizErr instanceof Error ? bizErr.message : String(bizErr || '');
       if (
         msg.includes('INVALID_STATUS_TRANSITION') ||
         msg.includes('EVIDENCE_REQUIRED') ||
@@ -96,8 +102,9 @@ export async function POST(
       }
       throw bizErr;
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Kesalahan server';
     console.error('[Admin Update Complaint Status Error]', err);
-    return ApiErrors.internal('Gagal memperbarui status laporan: ' + err.message);
+    return ApiErrors.internal('Gagal memperbarui status laporan: ' + errorMsg);
   }
 }

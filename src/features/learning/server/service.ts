@@ -139,7 +139,16 @@ export async function getEvaluationDashboardData(): Promise<{
 
   const activePrompts: PersonaRule[] = [];
 
-  const recentEvaluations = allEvals.slice(0, 25).map((row: any) => {
+  const recentEvaluations = (allEvals.slice(0, 25) as {
+    id: string;
+    complaint_id: string;
+    status: string;
+    summary: string | null;
+    has_new_learning: boolean;
+    positive_prompts: unknown;
+    negative_prompts: unknown;
+    created_at: string;
+  }[]).map((row) => {
     if (row.status === 'SUCCESS') counts.success += 1;
     else if (row.status === 'PENDING') counts.pending += 1;
     else if (row.status === 'IN_PROGRESS') counts.inProgress += 1;

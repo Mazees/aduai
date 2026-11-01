@@ -1,9 +1,15 @@
 import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { requireAdminAuth } from '@/lib/supabase/auth';
 import { runEvaluationJob } from '@/features/learning/server/runner';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireAdminAuth(req);
+    if (auth.error) {
+      return auth.error;
+    }
+
     const body = await req.json().catch(() => null);
     const complaintId = body?.complaintId;
 

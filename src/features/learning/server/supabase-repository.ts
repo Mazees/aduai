@@ -148,7 +148,8 @@ export class SupabaseLearningRepository implements LearningRepository {
   /**
    * Menandai kegagalan pemrosesan evaluasi agar bisa diaudit
    */
-  async fail(complaintId: string, token: string): Promise<void> {
+  async fail(complaintId: string, _token: string): Promise<void> {
+    void _token;
     try {
       const supabase = getSupabaseAdmin();
       await supabase

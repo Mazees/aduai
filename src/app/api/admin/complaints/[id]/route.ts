@@ -1,4 +1,5 @@
 import { getComplaintDetail } from '@/features/admin/server/complaints';
+import { requireAdminAuth } from '@/lib/supabase/auth';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
 export async function GET(
@@ -6,6 +7,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdminAuth(req);
+    if (auth.error) {
+      return auth.error;
+    }
+
     const { id } = await params;
     if (!id) {
       return ApiErrors.badRequest('ID laporan tidak valid');

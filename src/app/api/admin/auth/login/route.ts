@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       user.email?.split('@')[0] ||
       'Admin';
 
-    return successResponse({
+    const response = successResponse({
       user: {
         id: user.id,
         email: user.email,
@@ -53,6 +53,18 @@ export async function POST(req: Request) {
           }
         : null,
     });
+
+    if (data.session?.access_token) {
+      response.cookies.set('sb-access-token', data.session.access_token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: data.session.expires_in || 3600,
+      });
+    }
+
+    return response;
   } catch (err) {
     console.error('[Auth Login Fatal]', err);
     return ApiErrors.internal('Gagal memproses autentikasi');

@@ -75,7 +75,7 @@ export const ApiErrors = {
     errorResponse('IDEMPOTENCY_CONFLICT', msg, 409),
 
   unprocessable: (msg = 'Aturan bisnis atau validasi tidak terpenuhi', details?: Record<string, unknown>) =>
-    errorResponse('UNPROCESSABLE_ENTITY', msg, 422),
+    errorResponse('UNPROCESSABLE_ENTITY', msg, 422, details),
 
   tooManyRequests: (msg = 'Terlalu banyak permintaan. Silakan tunggu beberapa saat.') =>
     errorResponse('RATE_LIMIT_EXCEEDED', msg, 429),
