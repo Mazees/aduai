@@ -21,6 +21,7 @@ export async function dispatchStatusNotification(payload: StatusNotificationPayl
       ticketNumber: complaint.ticket_number,
       status: payload.status,
       note: payload.note,
+      evidenceUrl: payload.evidenceUrl,
       aiSummary: complaint.ai_summary,
     }),
   });

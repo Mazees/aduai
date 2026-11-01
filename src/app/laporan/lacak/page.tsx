@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, AlertCircle } from "lucide-react";
-import { MockService } from "@/lib/mock-service";
 import PublicLayout from "@/components/PublicLayout";
 
 export default function LacakPage() {
@@ -19,10 +18,6 @@ export default function LacakPage() {
       setErrorMsg("Nomor tiket wajib diisi.");
       return;
     }
-    if (!MockService.getComplaintByTicket(ticketNumber)) {
-      setErrorMsg("Nomor tiket tidak ditemukan.");
-      return;
-    }
 
     router.push(
       `/laporan/lacak/${encodeURIComponent(ticketNumber.trim().toUpperCase())}`,
@@ -32,7 +27,9 @@ export default function LacakPage() {
   return (
     <PublicLayout>
       <div className="tracking-page">
-        <div className="tracking-header"><h1>Lacak status aduan</h1></div>
+        <div className="tracking-header">
+          <h1>Lacak status aduan</h1>
+        </div>
         <div className="tracking-body">
           <div className="tracking-card">
             <h2>Temukan laporan Anda</h2>
@@ -54,7 +51,7 @@ export default function LacakPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="Contoh: ADU-20261031-8921"
+                    placeholder="Contoh: 571XXX"
                     value={ticketNumber}
                     onChange={(e) =>
                       setTicketNumber(e.target.value.toUpperCase())
@@ -63,10 +60,7 @@ export default function LacakPage() {
                   />
                 </div>
 
-                <button
-                  type="submit"
-                  className="tracking-submit"
-                >
+                <button type="submit" className="tracking-submit">
                   <Search className="w-4 h-4" />
                   <span>Lacak laporan</span>
                 </button>

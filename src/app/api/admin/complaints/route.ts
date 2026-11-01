@@ -1,8 +1,11 @@
+import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { listComplaints } from '@/features/admin/server/complaints';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 import type { ComplaintStatus } from '@/types/complaint';
 
 export async function GET(req: Request) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.authorized) return auth.response;
   try {
     const { searchParams } = new URL(req.url);
     const status = (searchParams.get('status') as ComplaintStatus) || undefined;

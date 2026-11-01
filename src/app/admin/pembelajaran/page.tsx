@@ -1,295 +1,48 @@
 "use client";
+import { useEffect, useState } from 'react';
+import AdminLayout from '@/components/AdminLayout';
+import { adminFetch } from '@/lib/auth/admin-session';
+import { formatDateTime } from '@/lib/utils';
 
-import React, { useState } from "react";
-import AdminLayout from "@/components/AdminLayout";
-import {
-  MockService,
-  INITIAL_PROMPTS,
-  INITIAL_EVALUATIONS,
-} from "@/lib/mock-service";
-import { PersonaPrompt, AiEvaluation } from "@/types/complaint";
-import { formatDateTime } from "@/lib/utils";
-import { Plus, Trash2 } from "lucide-react";
-import { useIsMounted } from "@/lib/use-is-mounted";
-
-export default function AdminPembelajaranPage() {
-  const isMounted = useIsMounted();
-  const [clientPrompts, setClientPrompts] = useState<PersonaPrompt[] | null>(
-    null,
-  );
-  const prompts =
-    clientPrompts ??
-    (isMounted ? MockService.getPersonaPrompts() : INITIAL_PROMPTS);
-  const evaluations: AiEvaluation[] = isMounted
-    ? MockService.getAiEvaluations()
-    : INITIAL_EVALUATIONS;
-
-  const [newType, setNewType] = useState<"POSITIVE" | "NEGATIVE">("POSITIVE");
-  const [newContent, setNewContent] = useState("");
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  const handleToggle = (id: string) => {
-    const updated = MockService.togglePersonaPrompt(id);
-    setClientPrompts(updated);
-  };
-
-  const handleDelete = (id: string) => {
-    const updated = MockService.deletePersonaPrompt(id);
-    setClientPrompts(updated);
-  };
-
-  const handleAddPrompt = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newContent.trim()) return;
-
-    MockService.addPersonaPrompt(newType, newContent);
-    setClientPrompts(MockService.getPersonaPrompts());
-    setNewContent("");
-    setShowAddModal(false);
-  };
-
-  const positivePrompts = prompts.filter((p) => p.type === "POSITIVE");
-  const negativePrompts = prompts.filter((p) => p.type === "NEGATIVE");
-
-  return (
-    <AdminLayout>
-      <div className="admin-page admin-page-detail">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Evaluasi & Persona Komunikasi AI
-            </h1>
-            <p className="text-xs text-slate-500">
-              Adaptasi gaya bahasa asisten AI berdasarkan evaluasi aduan warga.
-            </p>
-          </div>
-
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-dark text-white text-xs font-semibold transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tambah Aturan Persona</span>
-          </button>
-        </div>
-
-        {/* Explain Card */}
-        <div className="bg-slate-50 text-slate-700 p-3.5 rounded-xl border border-slate-200 text-xs leading-relaxed">
-          <strong>Self-Learning Agent:</strong> Setelah aduan terbit, agen
-          evaluasi secara otomatis meninjau percakapan untuk mendeteksi friksi
-          komunikasi dan menghasilkan prompt persona positif/negatif tanpa
-          merusak integritas sistem.
-        </div>
-
-        {/* Persona Prompts Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* Positive Prompts */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 sm:p-5 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900">
-                Persona Positif (Disarankan)
-              </h3>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold">
-                {positivePrompts.filter((p) => p.isActive).length} Aktif
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {positivePrompts.map((p) => (
-                <div
-                  key={p.id}
-                  className={`p-3 rounded-lg border text-xs space-y-1.5 transition-colors ${
-                    p.isActive
-                      ? "bg-slate-50/50 border-slate-200 text-slate-800"
-                      : "bg-slate-50 border-slate-200 text-slate-400 opacity-60"
-                  }`}
-                >
-                  <p className="leading-relaxed font-medium">{p.content}</p>
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/50 text-[10px]">
-                    <span className="text-slate-400 font-mono">
-                      {formatDateTime(p.createdAt)}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleToggle(p.id)}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        {p.isActive ? "Aktif" : "Nonaktif"}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(p.id)}
-                        className="text-rose-400 hover:text-rose-600 p-0.5"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Negative Prompts */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 sm:p-5 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900">
-                Persona Negatif (Dilarang)
-              </h3>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200 font-semibold">
-                {negativePrompts.filter((p) => p.isActive).length} Aktif
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {negativePrompts.map((p) => (
-                <div
-                  key={p.id}
-                  className={`p-3 rounded-lg border text-xs space-y-1.5 transition-colors ${
-                    p.isActive
-                      ? "bg-slate-50/50 border-slate-200 text-slate-800"
-                      : "bg-slate-50 border-slate-200 text-slate-400 opacity-60"
-                  }`}
-                >
-                  <p className="leading-relaxed font-medium">{p.content}</p>
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/50 text-[10px]">
-                    <span className="text-slate-400 font-mono">
-                      {formatDateTime(p.createdAt)}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleToggle(p.id)}
-                        className="font-medium text-rose-600 hover:underline"
-                      >
-                        {p.isActive ? "Aktif" : "Nonaktif"}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(p.id)}
-                        className="text-rose-400 hover:text-rose-600 p-0.5"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* AI Evaluation Logs */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-4 sm:p-5 space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900">
-              Log Evaluasi Percakapan Selesai ({evaluations.length})
-            </h3>
-            <span className="text-[11px] text-slate-400 font-mono">
-              Otomatis pasca-submit
-            </span>
-          </div>
-
-          <div className="space-y-2">
-            {evaluations.map((ev) => (
-              <div
-                key={ev.id}
-                className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs space-y-1"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-primary">
-                    {ev.ticketNumber}
-                  </span>
-                  <span className="text-slate-400 font-mono text-[10px]">
-                    {formatDateTime(ev.createdAt)}
-                  </span>
-                </div>
-                <p className="text-slate-700 leading-relaxed font-medium">
-                  {ev.summary}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Add Modal */}
-        {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                <h3 className="font-bold text-base text-slate-900">
-                  Tambah Aturan Persona Baru
-                </h3>
-                <button
-                  onClick={() => setShowAddModal(false)}
-                  className="text-xs text-slate-400 hover:text-slate-700 font-bold"
-                >
-                  [X]
-                </button>
-              </div>
-
-              <form onSubmit={handleAddPrompt} className="space-y-4">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
-                    Jenis Aturan
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setNewType("POSITIVE")}
-                      className={`py-2 rounded-xl text-xs font-bold border transition-colors ${
-                        newType === "POSITIVE"
-                          ? "bg-emerald-600 text-white border-emerald-600"
-                          : "bg-slate-50 text-slate-600 border-slate-200"
-                      }`}
-                    >
-                      Positif (Disarankan)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewType("NEGATIVE")}
-                      className={`py-2 rounded-xl text-xs font-bold border transition-colors ${
-                        newType === "NEGATIVE"
-                          ? "bg-rose-600 text-white border-rose-600"
-                          : "bg-slate-50 text-slate-600 border-slate-200"
-                      }`}
-                    >
-                      Negatif (Dilarang)
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
-                    Isi Prompt Aturan
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={newContent}
-                    onChange={(e) => setNewContent(e.target.value)}
-                    placeholder="Contoh: Selalu konfirmasi patokan visual terdekat secara sopan..."
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-primary focus:ring-1 focus:ring-primary outline-none"
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    className="px-4 py-2 rounded-xl text-xs text-slate-500 hover:bg-slate-100 font-semibold"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 rounded-xl text-xs bg-primary hover:bg-dark text-white font-bold"
-                  >
-                    Simpan Aturan
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-      </div>
-    </AdminLayout>
-  );
+type Prompt = { type: 'POSITIVE' | 'NEGATIVE'; content: string };
+type Evaluation = { id: string; complaintId: string; status: string; summary: string | null; errorCode: string | null; hasNewLearning: boolean; positivePrompts: string[]; negativePrompts: string[]; createdAt: string };
+type Data = { counts: { total: number; success: number; pending: number; inProgress: number; failed: number; withNewLearning: number }; analytics: Record<'week' | 'month' | 'year', { date: string; created: number; completed: number }[]>; recentEvaluations: Evaluation[]; activePrompts: Prompt[] };
+const failureMessages: Record<string, string> = {
+  AI_NOT_CONFIGURED: 'Pengaturan provider AI belum lengkap.',
+  AI_INVALID_ENDPOINT: 'Alamat provider AI tidak valid.',
+  AI_PROVIDER_ERROR: 'Provider AI menolak atau gagal memproses permintaan.',
+  AI_PROVIDER_AUTH_ERROR: 'API key provider AI ditolak. Periksa pengaturan AI.',
+  AI_PROVIDER_RATE_LIMIT: 'Batas penggunaan atau kuota provider AI tercapai.',
+  AI_PROVIDER_UNAVAILABLE: 'Provider AI sedang tidak tersedia.',
+  AI_STREAM_UNSUPPORTED: 'Provider AI tidak menyediakan respons streaming.',
+  AI_INCOMPLETE_RESPONSE: 'Respons provider AI tidak selesai.',
+  AI_INVALID_RESPONSE: 'Format respons provider AI tidak dikenali.',
+  AI_INVALID_TOOL_CALL: 'Format pemanggilan tool dari model tidak valid.',
+  EVALUATION_TIMEOUT: 'Proses belajar melewati batas waktu.',
+  EVALUATION_LOOP_LIMIT: 'Model tidak menyelesaikan proses belajar dalam batas percobaan.',
+  EVALUATION_TOOL_LIMIT: 'Model melampaui batas penggunaan tool.',
+  EVALUATION_SAVE_FAILED: 'Hasil pembelajaran gagal disimpan.',
+};
+const labels: Record<string, string> = { PENDING: 'Menunggu', IN_PROGRESS: 'Sedang belajar', SUCCESS: 'Selesai', FAILED: 'Gagal' };
+export default function LearningPage() {
+  const [data, setData] = useState<Data | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [period, setPeriod] = useState<'week' | 'month' | 'year'>('week');
+  useEffect(() => { let active = true; adminFetch('/api/admin/learning', { cache: 'no-store' }).then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error?.message || 'Gagal memuat pembelajaran'); if (active) setData(body.data); }).catch((cause) => { if (active) setError(cause.message || 'Gagal memuat pembelajaran'); }); return () => { active = false; }; }, []);
+  const positive = data?.activePrompts.filter((p) => p.type === 'POSITIVE').slice(0, 10) ?? [];
+  const negative = data?.activePrompts.filter((p) => p.type === 'NEGATIVE').slice(0, 10) ?? [];
+  return <AdminLayout><div className="admin-page space-y-5">
+    <div><h1 className="text-xl font-bold text-slate-900">Pembelajaran AI</h1><p className="text-sm text-slate-600">Pantau perkembangan AI dalam belajar merespons warga.</p></div>
+    {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+    {!data && !error && <p role="status" className="text-sm text-slate-600">Memuat pembelajaran...</p>}
+    {data && <><div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[['Proses belajar', data.counts.total], ['Selesai', data.counts.success], ['Menunggu', data.counts.pending + data.counts.inProgress], ['Gagal', data.counts.failed]].map(([label, count]) => <div key={label} className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-xl font-bold text-primary">{count}</p></div>)}</div>
+      <section className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="font-semibold text-slate-900">Perkembangan AI dalam belajar</h2><p className="mt-1 text-sm text-slate-600">Lihat proses belajar AI yang dimulai dan selesai dari waktu ke waktu.</p>
+        <div className="mt-3 flex flex-wrap gap-2">{([['week', '7 hari'], ['month', '1 bulan'], ['year', '1 tahun']] as const).map(([key, label]) => <button type="button" key={key} onClick={() => setPeriod(key)} aria-pressed={period === key} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${period === key ? 'bg-primary text-white' : 'bg-slate-100 text-slate-700'}`}>{label}</button>)}</div>
+        <div className="mt-4 flex gap-4 text-xs text-slate-600"><span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-primary" />Dibuat</span><span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-secondary" />Selesai</span></div>
+        <div className="mt-4 flex h-40 items-end gap-2" aria-label="Grafik perkembangan AI dalam belajar">{data.analytics[period].map((day) => { const maximum = Math.max(1, ...data.analytics[period].flatMap((d) => [d.created, d.completed])); return <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-2"><div className="flex h-28 w-full items-end justify-center gap-1" title={day.date + ': ' + day.created + ' dibuat, ' + day.completed + ' selesai'}><div className="w-4 rounded-t bg-primary" style={{ height: (day.created / maximum * 100) + '%' }} /><div className="w-4 rounded-t bg-secondary" style={{ height: (day.completed / maximum * 100) + '%' }} /></div><span className="text-xs text-slate-500">{period === 'year' ? day.date.slice(2).replace('-', '/') : period === 'month' && Number(day.date.slice(-2)) % 5 !== 0 ? '' : day.date.slice(5).split('-').reverse().join('/')}</span><span className="sr-only">{day.created} dibuat, {day.completed} selesai</span></div>; })}</div>
+      </section>
+      <div className="grid gap-4 md:grid-cols-2">{([{ title: 'Panduan positif', list: positive }, { title: 'Hal yang dihindari', list: negative }]).map((group) => <section key={group.title} className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="font-semibold text-slate-900">{group.title}</h2>{group.list.length ? <ul className="mt-3 space-y-2">{group.list.map((p, index) => <li key={index} className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{p.content}</li>)}</ul> : <p className="mt-3 text-sm text-slate-500">Belum ada panduan.</p>}</section>)}</div>
+      <section className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="font-semibold text-slate-900">Riwayat pembelajaran</h2>{data.recentEvaluations.length ? <ol className="mt-3 divide-y divide-slate-100">{data.recentEvaluations.map((item) => <li key={item.id} className="space-y-1 py-4 text-sm"><div className="flex flex-wrap justify-between gap-2"><span className="font-semibold text-primary">{labels[item.status] || item.status}</span><time className="text-xs text-slate-500">{formatDateTime(item.createdAt)}</time></div><p className="text-slate-700">{item.status === 'FAILED' ? (item.errorCode && failureMessages[item.errorCode] || 'Penyebab kegagalan belum tercatat. Periksa log server.') : (item.summary || 'Belum ada ringkasan.')}</p>{item.hasNewLearning && <p className="text-xs text-slate-500">Ada panduan komunikasi baru</p>}</li>)}</ol> : <p className="mt-3 text-sm text-slate-500">Belum ada riwayat pembelajaran.</p>}</section>
+    </>}
+  </div></AdminLayout>;
 }

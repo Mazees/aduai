@@ -1,7 +1,10 @@
+import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { readProviderConfig, saveProviderConfig } from '@/features/admin/server/settings';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.authorized) return auth.response;
   try {
     const config = await readProviderConfig();
 
@@ -17,16 +20,23 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.authorized) return auth.response;
   try {
     const body = await req.json().catch(() => null);
-    if (!body?.endpoint || !body?.model || !body?.apiKey) {
+    if (typeof body?.endpoint !== 'string' || typeof body?.model !== 'string' || !body.endpoint.trim() || !body.model.trim()) {
       return ApiErrors.badRequest('Field endpoint, model, dan apiKey wajib diisi');
     }
 
+    let endpoint: URL;
+    try { endpoint = new URL(body.endpoint); if (endpoint.protocol !== 'https:') throw new Error(); } catch { return ApiErrors.badRequest('Endpoint harus berupa URL HTTPS'); }
+    const previous = await readProviderConfig();
+    const apiKey = typeof body.apiKey === 'string' && body.apiKey.trim() ? body.apiKey.trim() : previous.apiKey;
+    if (!apiKey) return ApiErrors.badRequest('API key wajib diisi untuk konfigurasi pertama');
     await saveProviderConfig({
       endpoint: body.endpoint,
       model: body.model,
-      apiKey: body.apiKey,
+      apiKey,
     });
 
     return successResponse({

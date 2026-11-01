@@ -51,8 +51,9 @@ export default function CitizenNavigation() {
         >
           <Menu size={21} />
         </button>
-        <Link href="/" className="citizen-mobile-brand">
-          AduAI <span>Ruang warga</span>
+        <Link href="/" className="workspace-mobile-brand">
+          <Image src="/icon.png" alt="" width={40} height={40} />
+          <span><strong>AduAI</strong><small>Ruang warga</small></span>
         </Link>
       </header>
       {open && (

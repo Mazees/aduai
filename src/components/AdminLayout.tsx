@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Inbox,
   BookOpen,
+  TrendingUp,
   Sliders,
   LogOut,
   ExternalLink,
@@ -16,7 +17,7 @@ import {
   MessageSquare,
   MessageCircle,
 } from "lucide-react";
-import { MockService } from "@/lib/mock-service";
+import { adminFetch, clearAdminSession } from "@/lib/auth/admin-session";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -26,6 +27,7 @@ function AdminLayoutInner({ children }: AdminLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => { void adminFetch('/api/admin/auth/me').catch(() => {}); }, []);
   const sidebar = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -38,13 +40,14 @@ function AdminLayoutInner({ children }: AdminLayoutProps) {
   const navItems = [
     { href: "/admin/dashboard", label: "Ringkasan", icon: LayoutDashboard },
     { href: "/admin/aduan", label: "Daftar aduan", icon: Inbox },
-    { href: "/admin/pembelajaran", label: "Pembelajaran AI", icon: BookOpen },
+    { href: "/admin/knowledge", label: "Pengetahuan AI", icon: BookOpen },
+    { href: "/admin/pembelajaran", label: "Perkembangan AI", icon: TrendingUp },
     { href: "/admin/pengaturan/ai", label: "Pengaturan AI", icon: Sliders },
     { href: "/admin/pengaturan/whatsapp", label: "WhatsApp", icon: MessageCircle },
   ];
 
   const handleLogout = () => {
-    MockService.logoutAdmin();
+    clearAdminSession();
     router.push("/admin/login");
   };
 
@@ -52,18 +55,16 @@ function AdminLayoutInner({ children }: AdminLayoutProps) {
     <div className="admin-shell">
       <a href="#admin-content" className="skip-link">Langsung ke isi halaman</a>
       {/* Mobile Top Header */}
-      <div className="admin-mobile-toolbar">
-        <div className="flex items-center gap-2">
-          <Image src="/icon.png" alt="" width={36} height={36} className="admin-mobile-logo" />
-          <span className="font-bold text-sm tracking-tight">AduAI, ruang admin</span>
-        </div>
+      <header className="admin-mobile-toolbar">
         <button ref={menuButton} type="button" aria-label={sidebarOpen ? "Tutup menu admin" : "Buka menu admin"} aria-expanded={sidebarOpen} aria-controls="admin-navigation"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="theme-toggle"
-        >
-          {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          onClick={() => setSidebarOpen(!sidebarOpen)} className="theme-toggle">
+          {sidebarOpen ? <X size={21} /> : <Menu size={21} />}
         </button>
-      </div>
+        <Link href="/admin/dashboard" className="workspace-mobile-brand">
+          <Image src="/icon.png" alt="" width={40} height={40} />
+          <span><strong>AduAI</strong><small>Ruang admin</small></span>
+        </Link>
+      </header>
 
       {/* Sidebar for Desktop & Mobile Drawer */}
       <aside
@@ -166,5 +167,3 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     </Suspense>
   );
 }
-
-

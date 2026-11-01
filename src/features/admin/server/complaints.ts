@@ -32,6 +32,7 @@ export interface AdminComplaintDetail {
       fileName: string;
       mimeType: string;
       sizeBytes: number;
+      url?: string;
     }[];
   }[];
 }
@@ -49,6 +50,7 @@ export interface UpdateComplaintInput {
     sizeBytes: number;
   }[];
   idempotencyKey?: string;
+  origin: string;
 }
 
 export interface UpdateComplaintResult {
@@ -56,7 +58,7 @@ export interface UpdateComplaintResult {
   complaintId: string;
   status: ComplaintStatus;
   note: string | null;
-  evidence: { id: string; fileName: string; mimeType: string }[];
+  evidence: { id: string; fileName: string; mimeType: string; url: string }[];
   notificationStatus: 'QUEUED' | 'FAILED';
   createdAt: string;
 }
@@ -172,7 +174,7 @@ export async function getComplaintDetail(id: string): Promise<AdminComplaintDeta
   // 2. Ambil riwayat pembaruan status & bukti dari tabel evidence (5 tabel Revisi 003)
   const { data: evidenceList, error: evErr } = await supabase
     .from('evidence')
-    .select('id, status, note, storage_path, file_name, mime_type, size_bytes, created_at')
+    .select('id, status, note, storage_path, created_at')
     .eq('complaint_id', id)
     .order('created_at', { ascending: true });
 
@@ -185,9 +187,10 @@ export async function getComplaintDetail(id: string): Promise<AdminComplaintDeta
     evidence: [
       {
         id: e.id,
-        fileName: e.file_name,
-        mimeType: e.mime_type,
-        sizeBytes: Number(e.size_bytes),
+        fileName: "Bukti",
+        mimeType: "application/octet-stream",
+        sizeBytes: 0,
+        url: e.storage_path ? `/api/reports/${encodeURIComponent(complaint.ticket_number)}/evidence/${e.id}` : undefined,
       },
     ],
   }));
@@ -216,7 +219,7 @@ export async function updateComplaintStatus(
   // 1. Ambil status saat ini dari tabel complaint
   const { data: current, error: getErr } = await supabase
     .from('complaint')
-    .select('id, status')
+    .select('id, status, ticket_number')
     .eq('id', input.complaintId)
     .maybeSingle();
 
@@ -256,8 +259,12 @@ export async function updateComplaintStatus(
     throw new Error('ONE_EVIDENCE_REQUIRED: Pilih tepat satu berkas bukti');
   }
   const file = input.files[0];
-  const fileExt = file.fileName.split('.').pop() || 'bin';
-  const storageKey = `${input.complaintId}/${crypto.randomUUID()}.${fileExt}`;
+  const fileExt: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' };
+  const extension = fileExt[file.mimeType];
+  if (!extension) throw new Error('INVALID_EVIDENCE_TYPE');
+  const evidenceId = crypto.randomUUID();
+  const storageKey = `${input.complaintId}/${evidenceId}.${extension}`;
+  const fileUrl = `/api/reports/${encodeURIComponent(current.ticket_number)}/evidence/${evidenceId}`;
   const { error: uploadError } = await supabase.storage.from('evidence').upload(storageKey, file.buffer, {
     contentType: file.mimeType,
     upsert: false,
@@ -267,16 +274,14 @@ export async function updateComplaintStatus(
   const { data: evidence, error: evidenceError } = await supabase
     .from('evidence')
     .insert({
+      id: evidenceId,
       complaint_id: input.complaintId,
       status: targetStatus,
       note: fullNote,
       storage_path: storageKey,
-      file_name: file.fileName,
-      mime_type: file.mimeType,
-      size_bytes: file.sizeBytes,
       created_by: input.adminId || null,
     })
-    .select('id, file_name, mime_type, created_at')
+    .select('id, created_at')
     .single();
 
   if (evidenceError || !evidence) {
@@ -305,6 +310,7 @@ export async function updateComplaintStatus(
       complaintId: input.complaintId,
       status: targetStatus,
       note: fullNote,
+      evidenceUrl: new URL(fileUrl, input.origin).toString(),
     });
     notificationStatus = sent.success ? 'QUEUED' : 'FAILED';
   } catch {
@@ -316,7 +322,7 @@ export async function updateComplaintStatus(
     complaintId: input.complaintId,
     status: targetStatus,
     note: fullNote,
-    evidence: [{ id: evidence.id, fileName: evidence.file_name, mimeType: evidence.mime_type }],
+    evidence: [{ id: evidence.id, fileName: file.fileName, mimeType: file.mimeType, url: fileUrl }],
     notificationStatus,
     createdAt: evidence.created_at,
   };

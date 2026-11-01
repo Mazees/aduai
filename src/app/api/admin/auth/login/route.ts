@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
 const LoginSchema = z.object({
@@ -21,7 +21,10 @@ export async function POST(req: Request) {
     const { email, password } = parsed.data;
 
     // Autentikasi langsung menggunakan Supabase Auth (auth.users)
-    const supabase = getSupabaseAdmin();
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) return ApiErrors.internal('Supabase belum dikonfigurasi');
+    const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase().trim(),
       password,

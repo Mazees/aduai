@@ -16,4 +16,5 @@ export interface StatusNotificationPayload {
   complaintId: string;
   status: ComplaintStatus;
   note?: string | null;
+  evidenceUrl: string;
 }

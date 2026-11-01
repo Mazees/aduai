@@ -1,8 +1,11 @@
+import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { runEvaluationJob } from '@/features/learning/server/runner';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
 export async function POST(req: Request) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.authorized) return auth.response;
   try {
     const body = await req.json().catch(() => null);
     const complaintId = body?.complaintId;

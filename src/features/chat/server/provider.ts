@@ -22,6 +22,11 @@ export async function completeWithConfig(
       ["localhost", "127.0.0.1"].includes(url.hostname))) || url.username || url.password || url.hash) {
     throw new Error("AI_INVALID_ENDPOINT");
   }
+  // Base URL OpenAI-compatible berakhiran /v1 perlu diarahkan ke chat completions.
+  // Endpoint lengkap maupun path khusus provider tetap dipakai apa adanya.
+  if (/\/v1\/?$/i.test(url.pathname)) {
+    url.pathname = url.pathname.replace(/\/+$/, "") + "/chat/completions";
+  }
   const timeout = AbortSignal.timeout(90_000);
   const response = await transport(url, {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + config.apiKey },
@@ -29,7 +34,13 @@ export async function completeWithConfig(
     cache: "no-store", redirect: "error", signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   });
   // Body error provider tidak diteruskan karena dapat berisi detail sensitif.
-  if (!response.ok || !response.body) throw new Error("AI_PROVIDER_ERROR");
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) throw new Error("AI_PROVIDER_AUTH_ERROR");
+    if (response.status === 429) throw new Error("AI_PROVIDER_RATE_LIMIT");
+    if (response.status >= 500) throw new Error("AI_PROVIDER_UNAVAILABLE");
+    throw new Error("AI_PROVIDER_ERROR");
+  }
+  if (!response.body) throw new Error("AI_PROVIDER_ERROR");
   if (!response.headers.get("content-type")?.includes("text/event-stream")) throw new Error("AI_STREAM_UNSUPPORTED");
   let content = "";
   let finished = false;

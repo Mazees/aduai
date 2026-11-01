@@ -1,4 +1,5 @@
 import 'server-only';
+import { getSupabaseAdmin } from '@/lib/supabase/server';
 import type { WhatsAppSendInput, WhatsAppSendResult } from './types';
 
 const FONNTE_BASE_URL = 'https://api.fonnte.com';
@@ -28,10 +29,11 @@ export type WhatsAppQrResult = {
   error?: string;
 };
 
-function getToken(): string | null {
-  const token = process.env.WHATSAPP_API_TOKEN?.trim();
-  if (!token || /^(mock|demo|your[-_ ])/i.test(token)) return null;
-  return token;
+async function getToken(): Promise<string | null> {
+  const { data, error } = await getSupabaseAdmin().from('configuration')
+    .select('whatsapp_api_token').eq('id', 'default').maybeSingle();
+  if (error) throw new Error('WA_CONFIG_UNAVAILABLE');
+  return typeof data?.whatsapp_api_token === 'string' ? data.whatsapp_api_token.trim() || null : null;
 }
 
 function providerError(response: FonnteResponse): string {
@@ -44,7 +46,7 @@ function providerError(response: FonnteResponse): string {
 }
 
 async function requestFonnte(path: '/send' | '/device' | '/qr', body: FormData): Promise<FonnteResponse> {
-  const token = getToken();
+  const token = await getToken();
   if (!token) throw new Error('WA_NOT_CONFIGURED');
 
   const response = await fetch(`${FONNTE_BASE_URL}${path}`, {
@@ -63,11 +65,10 @@ async function requestFonnte(path: '/send' | '/device' | '/qr', body: FormData):
 
 /** Status ini berasal dari Fonnte, bukan dari proses WhatsApp dalam Vercel. */
 export async function getWhatsAppDeviceStatus(): Promise<WhatsAppDeviceStatus> {
-  if (!getToken()) {
-    return { configured: false, connected: false, device: null, quota: null, error: 'WA_NOT_CONFIGURED' };
-  }
-
   try {
+    if (!await getToken()) {
+    return { configured: false, connected: false, device: null, quota: null, error: 'WA_NOT_CONFIGURED' };
+    }
     const data = await requestFonnte('/device', new FormData());
     if (data.status !== true) {
       return { configured: true, connected: false, device: null, quota: null, error: providerError(data) };
@@ -84,9 +85,8 @@ export async function getWhatsAppDeviceStatus(): Promise<WhatsAppDeviceStatus> {
 }
 
 export async function getWhatsAppQr(): Promise<WhatsAppQrResult> {
-  if (!getToken()) return { success: false, error: 'WA_NOT_CONFIGURED' };
-
   try {
+    if (!await getToken()) return { success: false, error: 'WA_NOT_CONFIGURED' };
     const body = new FormData();
     body.set('type', 'qr');
     const data = await requestFonnte('/qr', body);
@@ -101,12 +101,12 @@ export async function getWhatsAppQr(): Promise<WhatsAppQrResult> {
 
 /** Fonnte menerima pesan ke antrean; hasil ini belum membuktikan pesan dibaca. */
 export async function sendWhatsAppMessage(input: WhatsAppSendInput): Promise<WhatsAppSendResult> {
-  if (!getToken()) return { success: false, error: 'WA_NOT_CONFIGURED' };
   if (!/^\+[1-9]\d{7,14}$/.test(input.to) || !input.message.trim()) {
     return { success: false, error: 'INVALID_MESSAGE' };
   }
 
   try {
+    if (!await getToken()) return { success: false, error: 'WA_NOT_CONFIGURED' };
     const body = new FormData();
     body.set('target', input.to.slice(1));
     body.set('message', input.message);

@@ -1,9 +1,12 @@
+import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { readProviderConfig } from '@/features/admin/server/settings';
-import { getWhatsAppConfig } from '@/features/notifications/server/provider';
+import { getWhatsAppDeviceStatus } from '@/features/notifications/server/provider';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.authorized) return auth.response;
   try {
     const supabase = getSupabaseAdmin();
     const timestamp = new Date().toISOString();
@@ -34,8 +37,8 @@ export async function GET() {
     }
 
     // 3. Periksa WhatsApp Gateway
-    const waConfig = getWhatsAppConfig();
-    const whatsappStatus = waConfig.isMock ? 'SIMULATION_MODE' : 'LIVE_GATEWAY';
+    const waStatus = await getWhatsAppDeviceStatus();
+    const whatsappStatus = !waStatus.configured ? 'NOT_CONFIGURED' : waStatus.connected ? 'CONNECTED' : 'DISCONNECTED';
 
     // 4. Periksa Storage Buckets
     let storageStatus = 'ACCESSIBLE';
@@ -68,7 +71,7 @@ export async function GET() {
         },
         whatsappGateway: {
           status: whatsappStatus,
-          apiUrl: waConfig.apiUrl,
+          provider: 'FONNTE',
         },
         storage: {
           status: storageStatus,

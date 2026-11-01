@@ -41,7 +41,7 @@ export interface ComplaintUpdate {
   note?: string;
   rejectionReason?: string;
   evidence: UpdateEvidence[];
-  notificationStatus?: "PENDING" | "SENT" | "FAILED";
+  notificationStatus?: "PENDING" | "QUEUED" | "SENT" | "FAILED";
   createdAt: string;
 }
 
@@ -104,5 +104,8 @@ export interface ComplaintTrackingResult {
   ticketNumber: string;
   status: ComplaintStatus;
   summary: string;
-  updates: { status: ComplaintStatus; note: string; createdAt: string }[];
+  description: string;
+  category: string | null;
+  createdAt: string;
+  updates: { id: string; status: ComplaintStatus; note: string; createdAt: string; rejectionReason?: string; evidence: { id: string; url: string; fileName: string }[] }[];
 }

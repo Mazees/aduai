@@ -113,6 +113,12 @@ export async function submitComplaint(
   if (insertError || !finalRecord) {
     // Jika nomor tiket bertabrakan, retry generate tiket 6 digit baru
     if (insertError?.code === '23505') {
+      const existing = await supabase.from('complaint').select('id, ticket_number, status, created_at, request_hash').eq('idempotency_key', context.idempotencyKey).maybeSingle();
+      if (existing.data) {
+        if (existing.data.request_hash !== requestHash) throw new Error('IDEMPOTENCY_CONFLICT');
+        return { complaintId: existing.data.id, ticketNumber: existing.data.ticket_number, status: existing.data.status as ComplaintStatus, createdAt: existing.data.created_at };
+      }
+      if (existing.error) throw new Error('DATABASE_READ_FAILED');
       ticketNumber = generateTicketNumber();
       const retry = await supabase
         .from('complaint')
@@ -164,7 +170,7 @@ export async function submitComplaint(
  * Memastikan data publik terbebas dari nomor WhatsApp atau identitas pelapor
  */
 export async function trackComplaint(
-  input: { ticket: string; accessCode?: string },
+  input: { ticket: string },
   signal?: AbortSignal
 ): Promise<ComplaintTrackingResult> {
   if (signal?.aborted) throw signal.reason;
@@ -176,7 +182,7 @@ export async function trackComplaint(
   // 1. Ambil data aduan berdasarkan nomor tiket 6 digit
   const { data: complaint, error: compErr } = await supabase
     .from('complaint')
-    .select('id, ticket_number, ai_summary, status')
+    .select('id, ticket_number, category, description, ai_summary, status, created_at')
     .eq('ticket_number', normalizedTicket)
     .maybeSingle();
 
@@ -188,20 +194,25 @@ export async function trackComplaint(
   // 2. Ambil riwayat pembaruan status dari tabel evidence
   const { data: updates } = await supabase
     .from('evidence')
-    .select('status, note, created_at')
+    .select('id, status, note, storage_path, created_at')
     .eq('complaint_id', complaint.id)
     .order('created_at', { ascending: true });
 
   const formattedUpdates = (updates || []).map((u) => ({
+    id: u.id,
     status: u.status as ComplaintStatus,
     note: u.note || '',
     createdAt: u.created_at,
+    evidence: u.storage_path ? [{ id: u.id, url: `/api/reports/${encodeURIComponent(complaint.ticket_number)}/evidence/${u.id}`, fileName: 'Bukti' }] : [],
   }));
 
   return {
     ticketNumber: complaint.ticket_number,
     status: complaint.status as ComplaintStatus,
     summary: complaint.ai_summary,
+    description: complaint.description,
+    category: complaint.category,
+    createdAt: complaint.created_at,
     updates: formattedUpdates,
   };
 }

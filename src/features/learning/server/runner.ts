@@ -36,6 +36,11 @@ export async function runEvaluationJob(
       }
     );
 
+    if (result.status === 'FAILED') {
+      console.warn('[LearningRunner] Pembelajaran gagal:', result.code);
+      return { status: 'FAILED', error: result.code };
+    }
+
     if (result.status === 'SKIPPED') {
       return { status: 'SKIPPED' };
     }

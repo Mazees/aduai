@@ -24,15 +24,14 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
       }
 
       return data.map((item: {
-        document_id: string;
-        chunk_id: string;
+        id: string;
         title: string;
         content: string;
         source_url: string | null;
         similarity: number;
       }) => ({
-        documentId: item.document_id,
-        chunkId: item.chunk_id,
+        documentId: item.id,
+        chunkId: item.id,
         title: item.title,
         excerpt: item.content,
         sourceUrl: item.source_url,

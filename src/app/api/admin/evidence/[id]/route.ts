@@ -1,3 +1,4 @@
+import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
@@ -5,6 +6,8 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.authorized) return auth.response;
   try {
     const { id } = await params;
     if (!id) {
@@ -14,7 +17,7 @@ export async function GET(
     const supabase = getSupabaseAdmin();
     const { data: evidence, error: evErr } = await supabase
       .from('evidence')
-      .select('id, storage_path, file_name, mime_type, size_bytes')
+      .select('id, storage_path')
       .eq('id', id)
       .maybeSingle();
 
@@ -33,9 +36,6 @@ export async function GET(
 
     return successResponse({
       id: evidence.id,
-      fileName: evidence.file_name,
-      mimeType: evidence.mime_type,
-      sizeBytes: Number(evidence.size_bytes),
       signedUrl: signedData.signedUrl,
     });
   } catch (err) {
