@@ -4,6 +4,9 @@ import React from "react";
 import { CheckCheck, User, FileImage, FileText } from "lucide-react";
 import { ChatMessage } from "@/types/chat";
 import Image from "next/image";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
 interface ChatBubbleProps {
   message: ChatMessage;
@@ -36,7 +39,7 @@ export default function ChatBubble({
               alt="AduAI"
               width={78}
               height={78}
-              className="landing-brand"
+              className="block h-full w-full object-contain"
             />
           )}
           {!isUser && (
@@ -89,8 +92,32 @@ export default function ChatBubble({
           )}
 
           {/* Text Content */}
-          <div className="whitespace-pre-wrap break-words text-slate-900">
-            {message.content}
+          <div className="break-words text-slate-900">
+            {isUser ? (
+              <div className="whitespace-pre-wrap">{message.content}</div>
+            ) : (
+              <div className="space-y-2">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkBreaks]}
+                  skipHtml
+                  components={{
+                    p: ({ children }) => <p>{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
+                    strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                    h1: ({ children }) => <h3 className="font-bold">{children}</h3>,
+                    h2: ({ children }) => <h3 className="font-bold">{children}</h3>,
+                    h3: ({ children }) => <h3 className="font-semibold">{children}</h3>,
+                    a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline break-all">{children}</a>,
+                    blockquote: ({ children }) => <blockquote className="border-l-2 border-primary/40 pl-3 text-slate-600">{children}</blockquote>,
+                    pre: ({ children }) => <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-xs">{children}</pre>,
+                    table: ({ children }) => <div className="overflow-x-auto"><table className="w-full text-left text-sm">{children}</table></div>,
+                    th: ({ children }) => <th className="border border-slate-200 px-2 py-1 font-semibold">{children}</th>,
+                    td: ({ children }) => <td className="border border-slate-200 px-2 py-1">{children}</td>,
+                  }}
+                >{message.content}</ReactMarkdown>
+              </div>
+            )}
             {isStreaming && (
               <span className="inline-block w-1.5 h-4 ml-1 bg-primary animate-blink align-middle" />
             )}

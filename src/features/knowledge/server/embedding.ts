@@ -7,7 +7,7 @@ import type { FeatureExtractionPipeline } from "@huggingface/transformers";
 const MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 let loader: Promise<FeatureExtractionPipeline> | undefined;
 
-// Load native library di runtime. Bundler tidak perlu membuat junction pada drive proyek.
+// Muat model sekali per instance server.
 async function extractor() {
   if (!loader) {
     const projectRequire = createRequire(path.join(process.cwd(), "package.json"));
@@ -21,6 +21,7 @@ async function extractor() {
   }
   try { return await loader; } catch (error) { loader = undefined; throw error; }
 }
+
 export async function generateEmbedding(text: string): Promise<number[]> {
   if (!text.trim()) throw new Error("EMPTY_EMBEDDING_INPUT");
   const model = await extractor();
@@ -43,3 +44,17 @@ export async function chunkDocument(content: string): Promise<string[]> {
   return chunks;
 }
 
+
+// Satu informasi tetap satu baris: rata-ratakan embedding setiap potongan.
+export async function generateDocumentEmbedding(content: string): Promise<number[]> {
+  const chunks = await chunkDocument(content);
+  if (!chunks.length) throw new Error('EMPTY_EMBEDDING_INPUT');
+  const sum = new Array<number>(384).fill(0);
+  for (const chunk of chunks) {
+    const vector = await generateEmbedding(chunk);
+    vector.forEach((value, index) => { sum[index] += value; });
+  }
+  const norm = Math.sqrt(sum.reduce((total, value) => total + value * value, 0));
+  if (!Number.isFinite(norm) || norm === 0) throw new Error('INVALID_EMBEDDING');
+  return sum.map((value) => value / norm);
+}

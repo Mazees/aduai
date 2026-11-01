@@ -1,202 +1,74 @@
 "use client";
 
-import React, { useState, useMemo, Suspense } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import AdminLayout from "@/components/AdminLayout";
-import { MockService, INITIAL_COMPLAINTS } from "@/lib/mock-service";
-import { ComplaintStatus } from "@/types/complaint";
-import StatusBadge from "@/components/StatusBadge";
-import { formatDateTime } from "@/lib/utils";
-import { Search, Inbox, Eye } from "lucide-react";
-import { useIsMounted } from "@/lib/use-is-mounted";
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import AdminLayout from '@/components/AdminLayout';
+import StatusBadge from '@/components/StatusBadge';
+import { adminFetch } from '@/lib/auth/admin-session';
+import { formatDateTime } from '@/lib/utils';
+import type { ComplaintStatus } from '@/types/complaint';
 
-const FILTER_TABS: { key: string; label: string; status?: ComplaintStatus }[] =
-  [
-    { key: "ALL", label: "Semua Aduan" },
-    { key: "NEW", label: "Baru", status: "NEW" },
-    { key: "ACCEPTED", label: "Diterima", status: "ACCEPTED" },
-    { key: "IN_PROGRESS", label: "Diproses", status: "IN_PROGRESS" },
-    { key: "RESOLVED", label: "Selesai", status: "RESOLVED" },
-    { key: "REJECTED", label: "Ditolak", status: "REJECTED" },
-  ];
+type Item = { id: string; ticketNumber: string; category: string | null; aiSummary: string; status: ComplaintStatus; createdAt: string };
+const tabs: { value: ComplaintStatus | 'ALL'; label: string }[] = [
+  { value: 'ALL', label: 'Semua' }, { value: 'NEW', label: 'Baru' },
+  { value: 'ACCEPTED', label: 'Diterima' }, { value: 'IN_PROGRESS', label: 'Diproses' },
+  { value: 'RESOLVED', label: 'Selesai' }, { value: 'REJECTED', label: 'Ditolak' },
+];
 
-function AdminAduanListContent() {
-  const searchParams = useSearchParams();
-  const initialStatus = searchParams.get("status") || "ALL";
-  const isMounted = useIsMounted();
+export default function AdminComplaintsPage() {
+  const [items, setItems] = useState<Item[]>([]);
+  const [status, setStatus] = useState<ComplaintStatus | 'ALL'>('ALL');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const complaints = isMounted
-    ? MockService.getComplaints()
-    : INITIAL_COMPLAINTS;
-  const [activeTab, setActiveTab] = useState(initialStatus);
-  const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams({ page: String(page), limit: '20' });
+    if (status !== 'ALL') params.set('status', status);
+    adminFetch(`/api/admin/complaints?${params}`, { cache: 'no-store' })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error?.message || 'Gagal memuat aduan');
+        if (active) { setItems(body.data.items); setTotal(body.data.pagination.total); setError(null); }
+      })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Gagal memuat aduan'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [page, status]);
 
-  const filteredComplaints = useMemo(() => {
-    return complaints.filter((item) => {
-      // Tab filter
-      if (activeTab !== "ALL" && item.status !== activeTab) {
-        return false;
-      }
-      // Search filter
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const matchTicket = item.ticketNumber.toLowerCase().includes(query);
-        const matchCategory = item.category.toLowerCase().includes(query);
-        const matchSummary = item.aiSummary.toLowerCase().includes(query);
-        const matchDesc = item.description.toLowerCase().includes(query);
-        return matchTicket || matchCategory || matchSummary || matchDesc;
-      }
-      return true;
-    });
-  }, [complaints, activeTab, searchQuery]);
+  const visible = useMemo(() => items.filter((item) => {
+    const text = `${item.ticketNumber} ${item.category ?? ''} ${item.aiSummary}`.toLowerCase();
+    return text.includes(query.trim().toLowerCase());
+  }), [items, query]);
 
-  return (
-    <div className="admin-page">
-      {/* Header Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            Daftar aduan
-          </h1>
-          <p className="text-xs text-slate-500">
-            Daftar pengaduan warga, status penanganan, dan verifikasi bukti
-            dinas.
-          </p>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
-        {/* Status Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {FILTER_TABS.map((tab) => {
-            const isActive = activeTab === tab.key;
-            const count =
-              tab.key === "ALL"
-                ? complaints.length
-                : complaints.filter((c) => c.status === tab.key).length;
-
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-                  isActive
-                    ? "bg-primary text-white"
-                    : "bg-slate-100 hover:bg-slate-200/70 text-slate-700"
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span className="text-[10px] font-mono opacity-80">
-                  ({count})
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Search box */}
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Cari berdasarkan tiket, kategori, atau uraian..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 focus:border-primary text-xs text-slate-800 outline-none"
-          />
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-        </div>
-      </div>
-
-      {/* Complaints Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-        {filteredComplaints.length === 0 ? (
-          <div className="p-12 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-              <Inbox className="w-6 h-6" />
-            </div>
-            <h3 className="font-semibold text-slate-800 text-sm">
-              Tidak Ada Aduan Ditemukan
-            </h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Tidak ada laporan yang sesuai dengan tab status atau kata kunci
-              pencarian yang dipilih.
-            </p>
-          </div>
-        ) : (
-          <>
-          <p className="admin-scroll-hint admin-scroll-hint-row">Geser tabel untuk melihat kolom lainnya</p>
-          <div className="admin-data-scroll" role="region" aria-label="Tabel semua aduan, gulir horizontal untuk kolom lainnya" tabIndex={0}>
-            <table className="admin-data-table">
-              <thead>
-                <tr>
-                  <th className="py-3.5 px-4">Nomor Tiket</th>
-                  <th className="py-3.5 px-4">Kategori</th>
-                  <th className="py-3.5 px-4">Intisari Laporan AI</th>
-                  <th className="py-3.5 px-4">Status Terkini</th>
-                  <th className="py-3.5 px-4">Tanggal Masuk</th>
-                  <th className="py-3.5 px-4 text-right">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredComplaints.map((item) => (
-                  <tr
-                    key={item.id}
-                    className="hover:bg-slate-50/70 transition-colors"
-                  >
-                    <td className="py-3.5 px-4 font-semibold text-primary">
-                      {item.ticketNumber}
-                    </td>
-                    <td className="py-3.5 px-4" title={item.category}>
-                      <span className="font-medium">
-                        {item.category}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-600" title={item.aiSummary}>
-                      <p>
-                        {item.aiSummary}
-                      </p>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <StatusBadge status={item.status} size="sm" />
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-500">
-                      {formatDateTime(item.createdAt)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <Link
-                        href={`/admin/aduan/${item.id}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-dark text-white font-semibold transition-colors shadow-2xs"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Detail</span>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          </>
-        )}
-      </div>
+  return <AdminLayout><div className="admin-page space-y-5">
+    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 pb-3">
+      <div><h1 className="text-xl font-bold text-slate-900">Daftar aduan</h1><p className="text-sm text-slate-600">Tinjau laporan dan perbarui status dengan bukti.</p></div>
+      <span className="text-sm text-slate-600">{total} laporan</span>
     </div>
-  );
-}
-
-export default function AdminAduanListPage() {
-  return (
-    <AdminLayout>
-      <Suspense
-        fallback={
-          <div className="p-8 text-center text-xs text-slate-500">
-            Memuat meja kerja aduan...
-          </div>
-        }
-      >
-        <AdminAduanListContent />
-      </Suspense>
-    </AdminLayout>
-  );
+    <div className="flex flex-wrap gap-2" aria-label="Filter status">
+      {tabs.map((tab) => <button key={tab.value} type="button" onClick={() => { setStatus(tab.value); setPage(1); setLoading(true); }}
+        className={`rounded-lg px-3 py-2 text-sm font-medium ${status === tab.value ? 'bg-primary text-white' : 'border border-slate-200 bg-white text-slate-700'}`}>{tab.label}</button>)}
+    </div>
+    <label className="block"><span className="sr-only">Cari laporan di halaman ini</span><input value={query} onChange={(e) => setQuery(e.target.value)}
+      placeholder="Cari nomor tiket atau ringkasan di halaman ini" className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-primary" /></label>
+    {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+    {loading ? <p className="text-sm text-slate-600">Memuat aduan...</p> : <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <table className="min-w-[800px] w-full text-left text-sm"><thead className="bg-slate-50 text-slate-600"><tr>
+        <th className="px-4 py-3">Tiket</th><th className="px-4 py-3">Aduan</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Dibuat</th><th className="px-4 py-3">Aksi</th>
+      </tr></thead><tbody className="divide-y divide-slate-100">{visible.map((item) => <tr key={item.id}>
+        <td className="px-4 py-3 font-mono font-semibold text-primary whitespace-nowrap">{item.ticketNumber}</td>
+        <td className="px-4 py-3 max-w-[380px]"><p className="truncate font-medium text-slate-900">{item.aiSummary}</p><p className="text-xs text-slate-500">{item.category ?? 'Aduan warga'}</p></td>
+        <td className="px-4 py-3 whitespace-nowrap"><StatusBadge status={item.status} size="sm" /></td>
+        <td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateTime(item.createdAt)}</td>
+        <td className="px-4 py-3"><Link href={`/admin/aduan/${item.id}`} className="font-semibold text-primary hover:underline">Tinjau</Link></td>
+      </tr>)}</tbody></table>
+      {visible.length === 0 && <p className="p-5 text-sm text-slate-600">Tidak ada aduan pada halaman ini.</p>}
+    </div>}
+    <div className="flex items-center justify-end gap-3 text-sm"><button disabled={page === 1} onClick={() => { setPage(page - 1); setLoading(true); }} className="disabled:opacity-40">Sebelumnya</button>
+      <span>Halaman {page}</span><button disabled={page * 20 >= total} onClick={() => { setPage(page + 1); setLoading(true); }} className="disabled:opacity-40">Berikutnya</button></div>
+  </div></AdminLayout>;
 }

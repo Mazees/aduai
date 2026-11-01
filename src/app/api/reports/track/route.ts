@@ -4,7 +4,6 @@ import { successResponse, ApiErrors } from '@/lib/api/response';
 
 const TrackSchema = z.object({
   ticket: z.string().trim().min(5, 'Nomor tiket tidak valid').max(20, 'Nomor tiket terlalu panjang'),
-  accessCode: z.string().optional(),
 });
 
 export async function POST(req: Request) {
@@ -18,10 +17,10 @@ export async function POST(req: Request) {
       });
     }
 
-    const { ticket, accessCode } = parsed.data;
+    const { ticket } = parsed.data;
 
     try {
-      const result = await trackComplaint({ ticket, accessCode });
+      const result = await trackComplaint({ ticket });
       return successResponse(result);
     } catch {
       return ApiErrors.notFound('Laporan tidak ditemukan dengan nomor tiket tersebut.');

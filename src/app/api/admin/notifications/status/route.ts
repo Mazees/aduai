@@ -1,20 +1,18 @@
-import { getWhatsAppConfig } from '@/features/notifications/server/provider';
-import { successResponse, ApiErrors } from '@/lib/api/response';
+import { requireAdminAuth } from '@/lib/auth/admin-guard';
+import { successResponse } from '@/lib/api/response';
+import { getWhatsAppDeviceStatus } from '@/features/notifications/server/provider';
 
-export async function GET() {
-  try {
-    const config = getWhatsAppConfig();
+export async function GET(req: Request) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.authorized) return auth.response;
 
-    return successResponse({
-      isMock: config.isMock,
-      apiUrl: config.apiUrl,
-      hasToken: Boolean(config.apiToken && !config.isMock),
-      maskedToken: config.apiToken
-        ? `${config.apiToken.slice(0, 4)}...${config.apiToken.slice(-4)}`
-        : null,
-    });
-  } catch (err) {
-    console.error('[Admin WhatsApp Status Error]', err);
-    return ApiErrors.internal('Gagal memeriksa status WhatsApp Gateway');
-  }
+  const status = await getWhatsAppDeviceStatus();
+  const device = status.device;
+  return successResponse({
+    configured: status.configured,
+    connected: status.connected,
+    device: device ? `${device.slice(0, 4)}••••${device.slice(-3)}` : null,
+    quota: status.quota,
+    error: status.error ?? null,
+  }, 200, { 'Cache-Control': 'no-store' });
 }

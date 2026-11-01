@@ -1,13 +1,12 @@
 "use client";
 
-import { Suspense, use, useState } from "react";
+import { Suspense, use, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, Copy, FileText } from "lucide-react";
 import PublicLayout from "@/components/PublicLayout";
 import StatusBadge from "@/components/StatusBadge";
-import { MockService } from "@/lib/mock-service";
 import { formatDateTime } from "@/lib/utils";
-import type { Complaint, ComplaintStatus } from "@/types/complaint";
+import type { ComplaintTrackingResult, ComplaintStatus } from "@/types/complaint";
 
 const STEPS: { status: ComplaintStatus; label: string }[] = [
   { status: "NEW", label: "Laporan dibuat" },
@@ -19,9 +18,24 @@ const STEPS: { status: ComplaintStatus; label: string }[] = [
 function TicketContent({ params }: { params: Promise<{ ticket: string }> }) {
   const { ticket } = use(params);
   const ticketNumber = decodeURIComponent(ticket);
-  const [complaint] = useState<Complaint | null>(
-    () => MockService.getComplaintByTicket(ticketNumber) ?? null,
-  );
+  const [complaint, setComplaint] = useState<ComplaintTrackingResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/reports/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket: ticketNumber }),
+    }).then(async (response) => {
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error?.message || 'Nomor tiket tidak ditemukan');
+      if (active) setComplaint(body.data as ComplaintTrackingResult);
+    }).catch((cause) => {
+      if (active) setLookupError(cause instanceof Error ? cause.message : 'Gagal memuat tiket');
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [ticketNumber]);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   async function copyTicketLink() {
@@ -33,12 +47,14 @@ function TicketContent({ params }: { params: Promise<{ ticket: string }> }) {
     }
   }
 
+  if (loading) return <div className="tracking-detail-page"><p>Memuat laporan...</p></div>;
+
   if (!complaint) {
     return (
       <div className="tracking-detail-page">
         <div className="ticket-empty">
           <h2>Nomor tiket tidak ditemukan</h2>
-          <p>Periksa kembali nomor tiket yang Anda masukkan.</p>
+          <p>{lookupError || "Periksa kembali nomor tiket yang Anda masukkan."}</p>
           <Link href="/laporan/lacak">Cari tiket lain</Link>
         </div>
       </div>
@@ -91,7 +107,7 @@ function TicketContent({ params }: { params: Promise<{ ticket: string }> }) {
           <div className="ticket-summary-body">
             <div>
               <h3>Ringkasan aduan</h3>
-              <p className="ticket-summary-lead">{complaint.aiSummary}</p>
+              <p className="ticket-summary-lead">{complaint.summary}</p>
             </div>
             <div>
               <h3>Uraian laporan</h3>

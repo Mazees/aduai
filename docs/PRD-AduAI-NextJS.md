@@ -36,7 +36,8 @@ Mada dan Dimas menyepakati fungsi agent dan format input/output; Cahya dan Dimas
 | `/admin/aduan` | Admin | Daftar dan filter laporan. |
 | `/admin/aduan/[id]` | Admin | Detail anonim dan perubahan status dengan bukti. |
 | `/admin/pembelajaran` | Admin | Ringkasan evaluasi dan daftar persona aktif. |
-| `/admin/pengaturan/ai` | Admin | Konfigurasi endpoint, model, dan API key provider AI. |
+| `/admin/pengaturan/ai` | Admin | Konfigurasi provider AI dan Main Knowledge. |
+| `/admin/knowledge` | Admin | Kelola informasi untuk pencarian vector. |
 
 Gunakan App Router, Route Handlers di `app/api`, Server Components untuk tampilan yang sesuai, dan Client Components untuk chat dan formulir. Pemeriksaan autentikasi dan otorisasi wajib dilakukan di server pada setiap endpoint admin.
 
@@ -72,7 +73,7 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 type ComplaintDraft = {
   description: string;           // Isi aduan; wajib saat dikirim
   category: string | null;       // Saran AI; boleh diubah sistem/admin
-  aiSummary: string;             // Ringkasan tanpa identitas
+  aiSummary: string;             // Ringkasan tanpa identitas pelapor
   whatsapp: string;              // Nomor pengadu, E.164 saat submit
 };
 
@@ -85,7 +86,7 @@ type PersonaPrompt = {
 };
 ```
 
-`description` dan `aiSummary` harus diproses untuk menghilangkan nomor WhatsApp dan identitas yang terdeteksi sebelum disimpan sebagai konten yang dapat dibaca admin. Jika penyamaran gagal atau ambigu, minta pengadu memperbaiki draft atau tahan konten untuk proses aman; jangan mengembalikan teks mentah melalui API admin. Sistem tidak menjamin pengenalan identitas sempurna, sehingga pengujian penting.
+`description` dan `aiSummary` harus diproses untuk menghilangkan nomor WhatsApp dan identitas pelapor yang terdeteksi sebelum disimpan sebagai konten yang dapat dibaca admin. Nama pihak yang dilaporkan atau pihak lain yang relevan boleh dicatat sebagaimana disampaikan pengadu; jangan menyatakannya sebagai kesalahan yang telah terbukti. Jika peran pemilik nama tidak jelas, tanyakan terlebih dahulu. Jika penyamaran gagal atau ambigu, minta pengadu memperbaiki draft atau tahan konten untuk proses aman; jangan mengembalikan teks mentah melalui API admin. Sistem tidak menjamin pengenalan identitas sempurna, sehingga pengujian penting.
 
 ## 7. API pengadu dan AI
 
@@ -271,7 +272,7 @@ Mencari status berdasarkan nomor tiket saja.
 }
 ```
 
-Gunakan nomor tiket acak berentropi tinggi, respons generik untuk tiket tidak ditemukan, dan rate limit. Siapa pun yang mengetahui nomor tiket dapat melihat hasil pelacakan; batasi respons pada status dan informasi yang aman untuk dibagikan. Jangan kembalikan nomor WhatsApp, identitas, atau chat mentah; lindungi URL tiket dari log dan analytics yang tidak diperlukan.
+Gunakan nomor tiket acak berentropi tinggi, respons generik untuk tiket tidak ditemukan, dan rate limit. Siapa pun yang mengetahui nomor tiket dapat melihat hasil pelacakan; batasi respons pada status dan informasi yang aman untuk dibagikan. Jangan kembalikan nomor WhatsApp, identitas pelapor, atau chat mentah; lindungi URL tiket dari log dan analytics yang tidak diperlukan.
 
 ## 8. Autentikasi dan API admin
 
@@ -333,14 +334,14 @@ Baik endpoint daftar, detail, dashboard, evaluasi maupun error **tidak boleh men
 
 ### 8.6 `POST /api/admin/complaints/[id]/updates`
 
-Gunakan `multipart/form-data` agar status dan bukti dikirim dalam satu permintaan. Header `Idempotency-Key` wajib. Untuk Vercel, batasi total body di bawah 4,5 MB termasuk overhead; file lebih besar memerlukan kontrak unggah langsung privat terpisah yang belum ditentukan dalam MVP.
+Gunakan `multipart/form-data` agar status dan bukti dikirim dalam satu permintaan. Untuk Vercel, batasi total body di bawah 4,5 MB termasuk overhead; file lebih besar memerlukan kontrak unggah langsung privat terpisah yang belum ditentukan dalam MVP.
 
 | Field | Tipe | Aturan |
 |---|---|---|
 | `status` | string | Status tujuan yang diizinkan. |
 | `note` | string | Opsional; bisa dilihat pengadu. |
 | `rejectionReason` | string | Wajib dan tidak kosong untuk `REJECTED`. |
-| `files` | file berulang | Minimal satu; foto atau PDF. |
+| `files` | file | Tepat satu JPG, PNG, WebP, atau PDF; maksimal 4 MB. |
 
 **Response `201`**
 
@@ -352,17 +353,17 @@ Gunakan `multipart/form-data` agar status dan bukti dikirim dalam satu permintaa
     "status": "ACCEPTED",
     "note": "Laporan diterima untuk ditindaklanjuti.",
     "evidence": [{ "id": "evidence-uuid", "fileName": "bukti.pdf", "mimeType": "application/pdf" }],
-    "notificationStatus": "PENDING",
+    "notificationStatus": "QUEUED",
     "createdAt": "2026-10-31T09:00:00Z"
   }
 }
 ```
 
-Server memeriksa transisi berdasarkan status saat ini dalam transaksi dan menolak perubahan serentak yang konflik dengan `409`. Validasi ukuran, jumlah dan jenis file di server, simpan dalam storage privat menggunakan nama acak, dan jangan percaya MIME dari klien saja. Jika penyimpanan bukti gagal, status tidak berubah. Buat entri notifikasi dalam transaksi yang sama dengan perubahan status. Cleanup file yang gagal dikaitkan ke transaksi.
+Server memvalidasi transisi, jenis dan ukuran berkas, mengunggah bukti ke Storage privat, menyimpan riwayat, lalu memperbarui status. Jika penyimpanan gagal, server mencoba membersihkan bukti yang telah diunggah. Setelah status tersimpan, server mencoba mengirim WhatsApp; respons `QUEUED` berarti Fonnte menerima antrean, sedangkan `FAILED` berarti pengiriman gagal tanpa membatalkan status.
 
 ### 8.7 `GET /api/admin/evidence/[id]`
 
-Hanya admin terautentikasi dapat mengakses bukti; server melakukan streaming file privat atau memberi URL bertanda tangan berumur pendek setelah pemeriksaan akses. Jangan simpan URL publik permanen.
+Admin terautentikasi dapat meminta URL bertanda tangan berumur pendek. Pengadu membuka bukti melalui route publik yang memeriksa nomor tiket dan ID bukti; objek Storage tetap privat.
 
 ### 8.8 `GET /api/admin/learning?page=1&limit=20`
 
@@ -409,7 +410,7 @@ Jika belum ada konfigurasi, kembalikan `configured: false`, `endpoint: null`, `m
 }
 ```
 
-URL harus lengkap dan model harus mendukung tool calling. Pada konfigurasi pertama, `apiKey` wajib. Pada pembaruan, `apiKey` boleh tidak dikirim atau dikirim sebagai string kosong untuk mempertahankan key yang ada. Response `200` mengembalikan bentuk aman yang sama dengan `GET`; input tidak valid mengembalikan `400`, akses tanpa sesi `401`, dan kegagalan penyimpanan mengembalikan error generik tanpa nilai sensitif. Simpan API key terenkripsi dengan kunci yang disimpan terpisah di secret server; jangan mengekspos key atau service role ke browser. Jangan menulis secret pada `.env.example`, source, atau Git.
+URL dapat berupa base URL berakhiran `/v1` atau endpoint chat completions lengkap; model harus mendukung tool calling. Pada konfigurasi pertama, `apiKey` wajib. Pada pembaruan, `apiKey` boleh tidak dikirim atau dikirim sebagai string kosong untuk mempertahankan key yang ada. Response `200` mengembalikan bentuk aman yang sama dengan `GET`; input tidak valid mengembalikan `400`, akses tanpa sesi `401`, dan kegagalan penyimpanan mengembalikan error generik tanpa nilai sensitif. Simpan API key terenkripsi dengan kunci yang disimpan terpisah di secret server; jangan mengekspos key atau service role ke browser. Jangan menulis secret pada `.env.example`, source, atau Git.
 
 Backend memasok endpoint, model, dan API key melalui `completeWithConfig`; modul AI tidak membaca file konfigurasi dan tidak mempunyai provider default. Dimas menghubungkan penyimpanan melalui `src/lib/ai/services.ts`. Sebelum service tersedia, POST /api/chat mengembalikan HTTP 503 `AI_INTEGRATION_NOT_CONFIGURED`. API key disimpan terenkripsi dan hanya dibaca server. Halaman dan API admin **belum diimplementasikan**.
 
@@ -633,26 +634,15 @@ Urutan system prompt: **aturan dasar tetap → Main Knowledge → positive promp
 
 ## 11. Notifikasi WhatsApp
 
-Saat perubahan status berhasil, buat record notifikasi `PENDING` dalam transaksi yang sama. Worker membaca antrean, mengambil nomor hanya untuk pengiriman, lalu memanggil API penyedia WhatsApp. Simpan hasil `SENT` atau `FAILED`, jumlah percobaan dan ID penyedia jika tersedia. Retry memakai ID notifikasi sebagai kunci idempotensi jika penyedia mendukungnya; tanpa dukungan penyedia, pengiriman tepat sekali tidak dapat dijamin.
+AduAI menggunakan Fonnte melalui HTTP dari Next.js di Vercel. Admin menyimpan token perangkat Fonnte melalui halaman WhatsApp; token disimpan pada kolom `configuration.whatsapp_api_token` dan hanya dibaca server. Admin masuk dengan Supabase Auth dan menghubungkan perangkat melalui `/admin/pengaturan/whatsapp`; server meminta status ke `/device` dan QR ke `/qr`. Sesi WhatsApp dikelola Fonnte.
 
-Pesan berisi nomor tiket, status, catatan/alasan yang layak dibagikan, dan petunjuk pelacakan. Konfirmasi ketersediaan akun, template, dan kemampuan penyedia WhatsApp sejak awal hackathon. `SENT` berarti diterima penyedia, bukan bukti bahwa pesan dibaca pengadu.
+Setelah aduan dibuat, server mencoba mengirim konfirmasi. Setelah perubahan status dan bukti tersimpan, server mengirim nomor tiket, status, catatan, dan tautan bukti melalui `/send`. `notificationStatus: QUEUED` berarti Fonnte menerima permintaan, belum menjamin pesan diterima; `FAILED` ditampilkan kepada admin tanpa membatalkan perubahan status. Tidak ada worker atau tabel notifikasi dalam alur ini.
+
+Bucket `evidence` bersifat privat. Route `/api/reports/[ticket]/evidence/[id]` dibentuk dari nomor tiket dan ID bukti; kolom `storage_path` menunjuk ke objek privat; server memeriksa kecocokan nomor tiket dan bukti sebelum membaca objek. Siapa pun yang mengetahui tautan tersebut dapat membuka bukti. Jangan sertakan data pribadi dalam bukti.
 
 ## 12. Skema database logis
 
-Gunakan UUID sebagai PK, timestamp UTC, FK dan indeks pada kolom pencarian. Simpan nomor WhatsApp secara terlindungi dan batasi aksesnya.
-
-| Tabel | Kolom utama |
-|---|---|
-| `admins` | `id`, `name`, `email` unik, `password_hash`, `created_at` |
-| `complaints` | `id`, `ticket_number` unik, `idempotency_key` unik, `request_hash`, `reporter_whatsapp`, `description`, `category`, `ai_summary`, `status`, `created_at`, `updated_at` |
-| `complaint_updates` | `id`, `complaint_id` FK, `admin_id` FK, `idempotency_key` unik, `request_hash`, `status`, `note`, `rejection_reason`, `created_at` |
-| `update_evidence` | `id`, `complaint_update_id` FK, `storage_key`, `file_name`, `mime_type`, `size_bytes`, `created_at` |
-| `notifications` | `id`, `complaint_update_id` FK unik, `status`, `attempt_count`, `provider_message_id`, `created_at`, `sent_at` |
-| `ai_evaluations` | `id`, `complaint_id` FK unik, `summary`, `has_new_learning`, `status`, `created_at` |
-| `persona_prompts` | `id`, `evaluation_id` FK, `type`, `content`, `is_active`, `created_at` |
-| `ai_provider_settings` | `id`, `endpoint`, `model`, `api_key_ciphertext`, `updated_by` FK ke admin, `updated_at`; satu konfigurasi aktif |
-
-Untuk MVP, tidak perlu tabel idempotensi terpisah. Backend mencari `idempotency_key` pada baris aduan atau pembaruan status, membandingkan `request_hash`, lalu mengembalikan hasil yang sudah ada atau `409` jika payload berbeda. Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memiliki banyak bukti dan satu notifikasi; satu evaluasi dapat menghasilkan banyak prompt. Bukti minimal satu dan alasan penolakan ditegakkan dalam transaksi aplikasi. Simpan objek file terpisah dari database; database menyimpan kunci privatnya.
+Gunakan lima tabel aplikasi: `configuration` untuk provider dan Main Knowledge; `complaint` untuk aduan, nomor tiket, status dan nomor WhatsApp privat; `knowledge` untuk pengetahuan dan vector; `ai_evaluation` untuk hasil evaluasi dan positive/negative prompt; serta `evidence` untuk satu bukti dan riwayat setiap perubahan status. Supabase Auth dan Storage dikelola layanan Supabase. Kolom `storage_path` dan `note` pada `evidence` serta token WhatsApp di `configuration` disiapkan oleh migrasi `20261101020000_whatsapp_evidence.sql`.
 
 ## 13. Kriteria penerimaan demo
 
@@ -688,4 +678,12 @@ Untuk MVP, tidak perlu tabel idempotensi terpisah. Backend mencari `idempotency_
 
 ## Panduan integrasi implementasi AI
 
-[Ringkasan tim](ai/README.md), [backend Dimas](ai/07-backend-dimas.md), dan [frontend Cahya](ai/08-frontend-cahya.md) menjelaskan kontrak kode yang sudah tersedia. Satu titik wiring backend ada di `src/lib/ai/services.ts` (`getAiServices`). Tidak ada CLI, adapter data sementara, atau pembacaan konfigurasi JSON dalam aplikasi. File JSON privat lama hanya backup, tetap diabaikan Git, dan tidak digunakan runtime. Endpoint chat menghasilkan 503 sampai dependency backend lengkap.
+[Ringkasan tim](ai/README.md), [backend Dimas](ai/07-backend-dimas.md), dan [frontend Cahya](ai/08-frontend-cahya.md) menjelaskan kontrak kode yang sudah tersedia. Satu titik wiring backend ada di `src/lib/ai/services.ts` (`getAiServices`). Tidak ada CLI, adapter data sementara, atau pembacaan konfigurasi JSON dalam aplikasi. File JSON privat lama hanya backup, tetap diabaikan Git, dan tidak digunakan runtime. Frontend chat menggunakan SSE `POST /api/chat`; provider AI dan Supabase harus dikonfigurasi sebelum diuji. Halaman pembelajaran menampilkan evaluasi dan prompt aktif tanpa pengubahan manual.
+
+## Integrasi halaman AI
+
+- `/laporan/chat` menggunakan `POST /api/chat` melalui SSE; riwayat dan draft disimpan di browser. Konfirmasi memanggil service pembuatan laporan melalui agent, dan nomor tiket ditampilkan setelah `complaint.created`.
+- `/admin/pengaturan/ai` menyimpan endpoint, model, API key, dan Main Knowledge. `/admin/knowledge` mengelola informasi vector (judul, isi maksimal 1.500 kata, status, dan tautan sumber opsional).
+- Setiap informasi knowledge memiliki satu vector 384 dimensi yang dihitung dari rata-rata embedding potongannya. Pencarian memakai RPC `match_knowledge`, hanya untuk informasi published.
+- `/admin/pembelajaran` membaca hasil evaluasi dan prompt aktif sebagai pemantauan. Prompt baru dibuat otomatis oleh evaluation agent.
+- Evaluasi yang berjalan di latar belakang saat ini belum dijamin bertahan setelah function serverless berhenti; verifikasi perilakunya di deployment sebelum mengandalkannya.

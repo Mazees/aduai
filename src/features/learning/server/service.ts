@@ -17,6 +17,7 @@ export async function getActivePersonaPrompts(signal?: AbortSignal): Promise<Per
       .from('ai_evaluation')
       .select('positive_prompts, negative_prompts')
       .eq('has_new_learning', true)
+      .eq('status', 'SUCCESS')
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -104,11 +105,13 @@ export async function getEvaluationDashboardData(): Promise<{
     failed: number;
     withNewLearning: number;
   };
+  analytics: Record<'week' | 'month' | 'year', { date: string; created: number; completed: number }[]>;
   recentEvaluations: {
     id: string;
     complaintId: string;
     status: string;
     summary: string | null;
+    errorCode: string | null;
     hasNewLearning: boolean;
     positivePrompts: string[];
     negativePrompts: string[];
@@ -121,7 +124,7 @@ export async function getEvaluationDashboardData(): Promise<{
   // 1. Ambil seluruh data evaluasi
   const { data: allEvals, error } = await supabase
     .from('ai_evaluation')
-    .select('id, complaint_id, status, summary, has_new_learning, positive_prompts, negative_prompts, created_at')
+    .select('id, complaint_id, status, summary, has_new_learning, positive_prompts, negative_prompts, error_message, created_at, updated_at')
     .order('created_at', { ascending: false });
 
   if (error || !allEvals) {
@@ -137,38 +140,43 @@ export async function getEvaluationDashboardData(): Promise<{
     withNewLearning: 0,
   };
 
-  const activePrompts: PersonaRule[] = [];
-
-  const recentEvaluations = allEvals.slice(0, 25).map((row: any) => {
+  for (const row of allEvals) {
     if (row.status === 'SUCCESS') counts.success += 1;
     else if (row.status === 'PENDING') counts.pending += 1;
     else if (row.status === 'IN_PROGRESS') counts.inProgress += 1;
     else if (row.status === 'FAILED') counts.failed += 1;
-
     if (row.has_new_learning) counts.withNewLearning += 1;
-
-    const pos = Array.isArray(row.positive_prompts) ? row.positive_prompts : [];
-    const neg = Array.isArray(row.negative_prompts) ? row.negative_prompts : [];
-
-    // Jika evaluasi sukses dan memiliki aturan, sertakan ke activePrompts
-    if (row.status === 'SUCCESS') {
-      pos.forEach((p: string) => {
-        if (typeof p === 'string' && p.trim()) {
-          activePrompts.push({ type: 'POSITIVE', content: p.trim() });
-        }
-      });
-      neg.forEach((n: string) => {
-        if (typeof n === 'string' && n.trim()) {
-          activePrompts.push({ type: 'NEGATIVE', content: n.trim() });
-        }
-      });
+  }
+  const now = new Date();
+  const periods = (length: number, monthly: boolean) => Array.from({ length }, (_, index) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), monthly ? 1 : now.getUTCDate()));
+    if (monthly) date.setUTCMonth(date.getUTCMonth() - (length - 1 - index));
+    else date.setUTCDate(date.getUTCDate() - (length - 1 - index));
+    return { date: date.toISOString().slice(0, monthly ? 7 : 10), created: 0, completed: 0 };
+  });
+  const analytics = { week: periods(7, false), month: periods(30, false), year: periods(12, true) };
+  for (const row of allEvals) {
+    if (row.status === 'FAILED') continue;
+    for (const [period, days] of Object.entries(analytics)) {
+      const length = period === 'year' ? 7 : 10;
+      const created = days.find((day) => day.date === row.created_at?.slice(0, length));
+      if (created) created.created += 1;
+      const completed = days.find((day) => day.date === row.updated_at?.slice(0, length));
+      if (completed && row.status === 'SUCCESS') completed.completed += 1;
     }
+  }
+  const activePrompts = await getActivePersonaPrompts();
+
+  const recentEvaluations = allEvals.slice(0, 25).map((row: { id: string; complaint_id: string; status: string; summary: string | null; has_new_learning: boolean; positive_prompts: unknown; negative_prompts: unknown; error_message: string | null; created_at: string }) => {
+    const pos = Array.isArray(row.positive_prompts) ? row.positive_prompts.filter((p): p is string => typeof p === 'string') : [];
+    const neg = Array.isArray(row.negative_prompts) ? row.negative_prompts.filter((p): p is string => typeof p === 'string') : [];
 
     return {
       id: row.id,
       complaintId: row.complaint_id,
       status: row.status,
-      summary: row.summary,
+      summary: row.status === 'FAILED' ? 'Proses pembelajaran gagal.' : row.summary,
+      errorCode: row.status === 'FAILED' && typeof row.error_message === 'string' && /^[A-Z_]{3,50}$/.test(row.error_message) ? row.error_message : null,
       hasNewLearning: Boolean(row.has_new_learning),
       positivePrompts: pos,
       negativePrompts: neg,
@@ -178,6 +186,7 @@ export async function getEvaluationDashboardData(): Promise<{
 
   return {
     counts,
+    analytics,
     recentEvaluations,
     activePrompts,
   };

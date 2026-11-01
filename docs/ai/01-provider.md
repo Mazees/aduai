@@ -1,7 +1,7 @@
 # 1. Provider OpenAI-compatible
 
 1. Dimas membaca konfigurasi server dengan bentuk `ProviderConfig = { endpoint, model, apiKey }` dari penyimpanan backend.
-2. `endpoint` berupa URL lengkap chat completions, termasuk `/chat/completions`. Provider harus mendukung streaming dan tool calling.
+2. `endpoint` menerima URL dasar berakhiran `/v1` atau URL lengkap chat completions (`/v1/chat/completions`). URL dasar otomatis ditambahkan `/chat/completions`; path khusus provider tetap dipakai sesuai input. Provider harus mendukung streaming dan tool calling.
 3. Bungkus `completeWithConfig(config, messages, tools, signal, onText)` sebagai fungsi `Completion` dan masukkan ke dependency agent.
 4. Masukkan fungsi Completion yang sama ke `evaluateSubmittedComplaint`; evaluasi tidak mempunyai provider default.
 5. Ambil konfigurasi baru untuk request berikutnya ketika admin mengganti pengaturan. Hindari singleton konfigurasi global yang menjadi usang.

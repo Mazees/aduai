@@ -79,15 +79,18 @@ export class SupabaseLearningRepository implements LearningRepository {
 
     if (existing) {
       // Klaim pekerjaan yang masih PENDING atau FAILED
-      const { error: updateErr } = await supabase
+      const { data: claimed, error: updateErr } = await supabase
         .from('ai_evaluation')
         .update({
           status: 'IN_PROGRESS',
           updated_at: new Date().toISOString(),
         })
-        .eq('id', existing.id);
+        .eq('id', existing.id)
+        .eq('status', existing.status)
+        .select('id')
+        .maybeSingle();
 
-      return !updateErr;
+      return !updateErr && Boolean(claimed);
     }
 
     // Buat entri baru langsung berstatus IN_PROGRESS
@@ -148,14 +151,15 @@ export class SupabaseLearningRepository implements LearningRepository {
   /**
    * Menandai kegagalan pemrosesan evaluasi agar bisa diaudit
    */
-  async fail(complaintId: string, token: string): Promise<void> {
+  async fail(complaintId: string, token: string, code = 'EVALUATION_FAILED'): Promise<void> {
     try {
       const supabase = getSupabaseAdmin();
       await supabase
         .from('ai_evaluation')
         .update({
           status: 'FAILED',
-          error_message: 'Evaluasi gagal diproses oleh model LLM',
+          summary: 'Proses pembelajaran gagal.',
+          error_message: code,
           updated_at: new Date().toISOString(),
         })
         .eq('complaint_id', complaintId);

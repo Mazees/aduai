@@ -32,6 +32,7 @@ export interface AdminComplaintDetail {
       fileName: string;
       mimeType: string;
       sizeBytes: number;
+      url?: string;
     }[];
   }[];
 }
@@ -49,6 +50,7 @@ export interface UpdateComplaintInput {
     sizeBytes: number;
   }[];
   idempotencyKey?: string;
+  origin: string;
 }
 
 export interface UpdateComplaintResult {
@@ -56,8 +58,8 @@ export interface UpdateComplaintResult {
   complaintId: string;
   status: ComplaintStatus;
   note: string | null;
-  evidence: { id: string; fileName: string; mimeType: string }[];
-  notificationStatus: 'PENDING' | 'SENT' | 'FAILED';
+  evidence: { id: string; fileName: string; mimeType: string; url: string }[];
+  notificationStatus: 'QUEUED' | 'FAILED';
   createdAt: string;
 }
 
@@ -172,7 +174,7 @@ export async function getComplaintDetail(id: string): Promise<AdminComplaintDeta
   // 2. Ambil riwayat pembaruan status & bukti dari tabel evidence (5 tabel Revisi 003)
   const { data: evidenceList, error: evErr } = await supabase
     .from('evidence')
-    .select('id, status, note, storage_path, file_name, mime_type, size_bytes, created_at')
+    .select('id, status, note, storage_path, created_at')
     .eq('complaint_id', id)
     .order('created_at', { ascending: true });
 
@@ -185,9 +187,10 @@ export async function getComplaintDetail(id: string): Promise<AdminComplaintDeta
     evidence: [
       {
         id: e.id,
-        fileName: e.file_name,
-        mimeType: e.mime_type,
-        sizeBytes: Number(e.size_bytes),
+        fileName: "Bukti",
+        mimeType: "application/octet-stream",
+        sizeBytes: 0,
+        url: e.storage_path ? `/api/reports/${encodeURIComponent(complaint.ticket_number)}/evidence/${e.id}` : undefined,
       },
     ],
   }));
@@ -216,7 +219,7 @@ export async function updateComplaintStatus(
   // 1. Ambil status saat ini dari tabel complaint
   const { data: current, error: getErr } = await supabase
     .from('complaint')
-    .select('id, status')
+    .select('id, status, ticket_number')
     .eq('id', input.complaintId)
     .maybeSingle();
 
@@ -251,104 +254,76 @@ export async function updateComplaintStatus(
     ? (input.rejectionReason ? `Alasan: ${input.rejectionReason.trim()}${input.note ? `. ${input.note.trim()}` : ''}` : input.note?.trim() || null)
     : input.note?.trim() || null;
 
-  // 5. Unggah file bukti ke Supabase Storage (bucket: 'evidence')
-  const uploadedEvidenceRecords: {
-    storageKey: string;
-    fileName: string;
-    mimeType: string;
-    sizeBytes: number;
-  }[] = [];
-
-  for (const file of input.files) {
-    const fileExt = file.fileName.split('.').pop() || 'bin';
-    const randomFileName = `${crypto.randomUUID()}.${fileExt}`;
-    const storageKey = `${input.complaintId}/${randomFileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('evidence')
-      .upload(storageKey, file.buffer, {
-        contentType: file.mimeType,
-        upsert: false,
-      });
-
-    if (uploadError) {
-      // Rollback jika ada yang gagal upload
-      for (const uploaded of uploadedEvidenceRecords) {
-        await supabase.storage.from('evidence').remove([uploaded.storageKey]);
-      }
-      throw new Error(`UPLOAD_EVIDENCE_FAILED: ${uploadError.message}`);
-    }
-
-    uploadedEvidenceRecords.push({
-      storageKey,
-      fileName: file.fileName,
-      mimeType: file.mimeType,
-      sizeBytes: file.sizeBytes,
-    });
+  // Satu perubahan status memakai satu bukti. File diunggah sebelum data disimpan.
+  if (input.files.length !== 1) {
+    throw new Error('ONE_EVIDENCE_REQUIRED: Pilih tepat satu berkas bukti');
   }
+  const file = input.files[0];
+  const fileExt: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' };
+  const extension = fileExt[file.mimeType];
+  if (!extension) throw new Error('INVALID_EVIDENCE_TYPE');
+  const evidenceId = crypto.randomUUID();
+  const storageKey = `${input.complaintId}/${evidenceId}.${extension}`;
+  const fileUrl = `/api/reports/${encodeURIComponent(current.ticket_number)}/evidence/${evidenceId}`;
+  const { error: uploadError } = await supabase.storage.from('evidence').upload(storageKey, file.buffer, {
+    contentType: file.mimeType,
+    upsert: false,
+  });
+  if (uploadError) throw new Error('UPLOAD_EVIDENCE_FAILED');
 
-  // 6. Simpan rekaman ke tabel evidence (5 tabel Revisi 003)
-  const evidenceResponses: { id: string; fileName: string; mimeType: string }[] = [];
-  let primaryEvidenceId: string = crypto.randomUUID();
-
-  for (const record of uploadedEvidenceRecords) {
-    const { data: evInserted, error: evErr } = await supabase
-      .from('evidence')
-      .insert({
-        complaint_id: input.complaintId,
-        status: targetStatus,
-        note: fullNote,
-        storage_path: record.storageKey,
-        file_name: record.fileName,
-        mime_type: record.mimeType,
-        size_bytes: record.sizeBytes,
-        created_by: input.adminId || null,
-      })
-      .select('id, file_name, mime_type')
-      .single();
-
-    if (!evErr && evInserted) {
-      primaryEvidenceId = evInserted.id;
-      evidenceResponses.push({
-        id: evInserted.id,
-        fileName: evInserted.file_name,
-        mimeType: evInserted.mime_type,
-      });
-    }
-  }
-
-  // 7. Perbarui status laporan di tabel complaint
-  await supabase
-    .from('complaint')
-    .update({
+  const { data: evidence, error: evidenceError } = await supabase
+    .from('evidence')
+    .insert({
+      id: evidenceId,
+      complaint_id: input.complaintId,
       status: targetStatus,
-      updated_at: new Date().toISOString(),
+      note: fullNote,
+      storage_path: storageKey,
+      created_by: input.adminId || null,
     })
-    .eq('id', input.complaintId);
+    .select('id, created_at')
+    .single();
 
-  // 8. Kirim notifikasi WhatsApp otomatis ke pelapor (Resilient / Non-blocking)
-  let notificationStatus: 'PENDING' | 'SENT' | 'FAILED' = 'PENDING';
+  if (evidenceError || !evidence) {
+    await supabase.storage.from('evidence').remove([storageKey]);
+    throw new Error('SAVE_EVIDENCE_FAILED');
+  }
+
+  // Status harus benar-benar berubah sebelum pesan WhatsApp diantrikan.
+  const { data: updated, error: updateError } = await supabase
+    .from('complaint')
+    .update({ status: targetStatus, updated_at: new Date().toISOString() })
+    .eq('id', input.complaintId)
+    .eq('status', currentStatus)
+    .select('id')
+    .maybeSingle();
+
+  if (updateError || !updated) {
+    await supabase.from('evidence').delete().eq('id', evidence.id);
+    await supabase.storage.from('evidence').remove([storageKey]);
+    throw new Error(updateError ? 'UPDATE_STATUS_FAILED' : 'INVALID_STATUS_TRANSITION');
+  }
+
+  let notificationStatus: 'QUEUED' | 'FAILED' = 'FAILED';
   try {
-    const notifResult = await dispatchStatusNotification({
+    const sent = await dispatchStatusNotification({
       complaintId: input.complaintId,
       status: targetStatus,
       note: fullNote,
+      evidenceUrl: new URL(fileUrl, input.origin).toString(),
     });
-    notificationStatus = notifResult.success ? 'SENT' : 'FAILED';
-  } catch (notifErr) {
-    console.warn('[NotificationDispatch] Gagal mengirim WhatsApp notifikasi:', (notifErr as Error).message);
+    notificationStatus = sent.success ? 'QUEUED' : 'FAILED';
+  } catch {
     notificationStatus = 'FAILED';
   }
 
-  const result: UpdateComplaintResult = {
-    id: primaryEvidenceId,
+  return {
+    id: evidence.id,
     complaintId: input.complaintId,
     status: targetStatus,
     note: fullNote,
-    evidence: evidenceResponses,
+    evidence: [{ id: evidence.id, fileName: file.fileName, mimeType: file.mimeType, url: fileUrl }],
     notificationStatus,
-    createdAt: new Date().toISOString(),
+    createdAt: evidence.created_at,
   };
-
-  return result;
 }

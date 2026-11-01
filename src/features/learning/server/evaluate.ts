@@ -127,8 +127,9 @@ export async function evaluateSubmittedComplaint(
     return { status: "SUCCESS" as const, ...proposal };
   } catch (error) {
     const message = error instanceof Error ? error.message : "EVALUATION_FAILED";
-    const code = /^[A-Z_]{3,50}$/.test(message) ? message : "EVALUATION_FAILED";
-    if (claimed) await deps.repository.fail(input.complaintId, token).catch(() => {});
+    const knownCodes = new Set(["AI_NOT_CONFIGURED", "AI_INVALID_ENDPOINT", "AI_PROVIDER_ERROR", "AI_PROVIDER_AUTH_ERROR", "AI_PROVIDER_RATE_LIMIT", "AI_PROVIDER_UNAVAILABLE", "AI_STREAM_UNSUPPORTED", "AI_INVALID_RESPONSE", "AI_INCOMPLETE_RESPONSE", "AI_INVALID_TOOL_CALL", "AI_OUTPUT_LIMIT", "AI_TOOL_LIMIT", "EVALUATION_TOOL_LIMIT", "EVALUATION_LOOP_LIMIT", "INVALID_EVALUATION", "UNSAFE_EVALUATION"]);
+    const code = error instanceof Error && error.name === "TimeoutError" ? "EVALUATION_TIMEOUT" : knownCodes.has(message) ? message : message.startsWith("COMMIT_EVALUATION_FAILED") ? "EVALUATION_SAVE_FAILED" : "EVALUATION_FAILED";
+    if (claimed) await deps.repository.fail(input.complaintId, token, code).catch(() => {});
     return { status: "FAILED" as const, code };
   }
 }

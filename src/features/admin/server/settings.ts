@@ -39,19 +39,10 @@ export async function readProviderConfig(): Promise<ProviderConfig> {
  */
 export async function getMainKnowledge(signal?: AbortSignal): Promise<string> {
   if (signal?.aborted) throw signal.reason;
-
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data } = await supabase
-      .from('configuration')
-      .select('main_knowledge')
-      .eq('id', 'default')
-      .maybeSingle();
-
-    return data?.main_knowledge || '';
-  } catch {
-    return '';
-  }
+  const { data, error } = await getSupabaseAdmin().from('configuration')
+    .select('main_knowledge').eq('id', 'default').maybeSingle();
+  if (error) throw new Error('MAIN_KNOWLEDGE_UNAVAILABLE');
+  return data?.main_knowledge || '';
 }
 
 /**
@@ -65,14 +56,11 @@ export async function saveProviderConfig(config: {
 }): Promise<void> {
   const supabase = getSupabaseAdmin();
 
-  await supabase
-    .from('configuration')
-    .upsert({
-      id: 'default',
-      ai_endpoint: config.endpoint,
-      ai_model: config.model,
-      ai_api_key_ciphertext: config.apiKey,
-      updated_by: config.adminId || null,
-      updated_at: new Date().toISOString(),
-    });
+  const values = { ai_endpoint: config.endpoint, ai_model: config.model, ai_api_key_ciphertext: config.apiKey, updated_by: config.adminId || null, updated_at: new Date().toISOString() };
+  const { data, error } = await supabase.from('configuration').update(values).eq('id', 'default').select('id').maybeSingle();
+  if (error) throw new Error('CONFIG_SAVE_FAILED');
+  if (!data) {
+    const result = await supabase.from('configuration').insert({ id: 'default', ...values });
+    if (result.error) throw new Error('CONFIG_SAVE_FAILED');
+  }
 }

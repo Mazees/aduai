@@ -1,3 +1,4 @@
+import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { getComplaintDetail } from '@/features/admin/server/complaints';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
@@ -5,6 +6,8 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.authorized) return auth.response;
   try {
     const { id } = await params;
     if (!id) {
