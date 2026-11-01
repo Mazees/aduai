@@ -84,14 +84,14 @@ Setiap event memiliki runId dan seq yang meningkat dalam satu stream. Pasangkan 
 
 | Event | Tampilan/state |
 |---|---|
-| run.started | Buat bubble asisten dan indikator proses. |
-| step.started | Tambahkan langkah berjalan dengan label server. |
-| step.completed | Tandai toolCallId terkait selesai. |
-| step.failed | Tandai langkah gagal; agent masih bisa melanjutkan. |
+| run.started | Buat bubble asisten dan satu indikator loading sementara. |
+| step.started | Tampilkan label langkah aktif pada indikator loading. |
+| step.completed | Hapus label langkah terkait; jangan simpan daftar langkah di chat. |
+| step.failed | Hapus label langkah terkait; agent masih bisa melanjutkan. |
 | reply.delta | Append text sesuai urutan seq ke bubble yang sama. |
 | draft.updated | Perbarui draft, missingFields dan readyForConfirmation; jangan submit otomatis. |
 | complaint.created | Simpan receipt segera dan tandai laporan berhasil dibuat. |
-| done | Ganti bubble dengan reply final, simpan draft final dan submission bila ada; jangan append reply sekali lagi. |
+| done | Hilangkan indikator loading, ganti bubble dengan reply final, simpan draft final dan submission bila ada; jangan append reply sekali lagi. |
 | error | Hentikan indikator, tampilkan message dan retry sesuai retryable. |
 
 Label langkah sudah disediakan server: Menyiapkan ringkasan, Mencari informasi layanan, Memeriksa status laporan, Menyimpan aduan. Jangan menampilkan argumen/hasil tool mentah atau penalaran model.
