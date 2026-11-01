@@ -45,3 +45,13 @@ next-env.d.ts
 
 # Panduan agen lokal tiap anggota
 /AGENTS.md
+
+# Konfigurasi lokal yang dapat berisi secret
+/.local/
+
+# Alat bantu pengembangan lokal
+/scripts/
+.codex/
+graphify-out/
+.graphifyignore
+/outputs

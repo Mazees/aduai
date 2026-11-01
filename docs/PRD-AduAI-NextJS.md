@@ -28,15 +28,16 @@ Mada dan Dimas menyepakati fungsi agent dan format input/output; Cahya dan Dimas
 | Route | Akses | Fungsi |
 |---|---|---|
 | `/` | Publik | Beranda. |
-| `/aduan/buat` | Guest | Percakapan, draft, konfirmasi, dan hasil tiket; dapat memakai langkah dalam satu halaman. |
-| `/lacak` | Guest | Form tiket dan kode akses. |
-| `/lacak/[ticket]` | Guest terverifikasi | Status dan riwayat yang diizinkan. |
+| `/laporan/chat` | Guest | Percakapan penuh, konfirmasi dalam chat, dan layar hasil tiket. |
+| `/laporan/lacak` | Guest | Form nomor tiket. |
+| `/laporan/lacak/[ticket]` | Guest | Status dan riwayat yang diizinkan berdasarkan nomor tiket. |
 | `/admin/login` | Publik | Login admin. |
 | `/admin/dashboard` | Admin | Jumlah laporan per status. |
 | `/admin/aduan` | Admin | Daftar dan filter laporan. |
 | `/admin/aduan/[id]` | Admin | Detail anonim dan perubahan status dengan bukti. |
 | `/admin/pembelajaran` | Admin | Ringkasan evaluasi dan daftar persona aktif. |
-| `/admin/pengaturan/ai` | Admin | Konfigurasi endpoint, model, dan API key provider AI. |
+| `/admin/pengaturan/ai` | Admin | Konfigurasi provider AI dan Main Knowledge. |
+| `/admin/knowledge` | Admin | Kelola informasi untuk pencarian vector. |
 
 Gunakan App Router, Route Handlers di `app/api`, Server Components untuk tampilan yang sesuai, dan Client Components untuk chat dan formulir. Pemeriksaan autentikasi dan otorisasi wajib dilakukan di server pada setiap endpoint admin.
 
@@ -61,7 +62,7 @@ Setiap transisi admin wajib menyertakan minimal satu foto atau dokumen sebagai b
 - Validasi input di server, misalnya menggunakan Zod. Jangan mengandalkan validasi frontend atau hasil AI sebagai otorisasi.
 - Nomor WhatsApp dinormalisasi ke format E.164. Contoh pada dokumen bersifat ilustrasi.
 - `Idempotency-Key` berupa UUID acak wajib pada pembuatan laporan dan perubahan status. Key yang sama dan payload yang sama mengembalikan hasil sebelumnya; key yang sama dengan payload berbeda menghasilkan `409`. Simpan key dan hasil secara persisten agar retry tidak menggandakan tiket atau notifikasi.
-- Jangan mencatat isi chat lengkap, nomor WhatsApp, kode akses, cookie, atau payload sensitif ke log aplikasi.
+- Jangan mencatat isi chat lengkap, nomor WhatsApp, cookie, atau payload sensitif ke log aplikasi.
 
 ## 6. Kontrak tipe bersama
 
@@ -72,7 +73,7 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 type ComplaintDraft = {
   description: string;           // Isi aduan; wajib saat dikirim
   category: string | null;       // Saran AI; boleh diubah sistem/admin
-  aiSummary: string;             // Ringkasan tanpa identitas
+  aiSummary: string;             // Ringkasan tanpa identitas pelapor
   whatsapp: string;              // Nomor pengadu, E.164 saat submit
 };
 
@@ -85,7 +86,7 @@ type PersonaPrompt = {
 };
 ```
 
-`description` dan `aiSummary` harus diproses untuk menghilangkan nomor WhatsApp dan identitas yang terdeteksi sebelum disimpan sebagai konten yang dapat dibaca admin. Jika penyamaran gagal atau ambigu, minta pengadu memperbaiki draft atau tahan konten untuk proses aman; jangan mengembalikan teks mentah melalui API admin. Sistem tidak menjamin pengenalan identitas sempurna, sehingga pengujian penting.
+`description` dan `aiSummary` harus diproses untuk menghilangkan nomor WhatsApp dan identitas pelapor yang terdeteksi sebelum disimpan sebagai konten yang dapat dibaca admin. Nama pihak yang dilaporkan atau pihak lain yang relevan boleh dicatat sebagaimana disampaikan pengadu; jangan menyatakannya sebagai kesalahan yang telah terbukti. Jika peran pemilik nama tidak jelas, tanyakan terlebih dahulu. Jika penyamaran gagal atau ambigu, minta pengadu memperbaiki draft atau tahan konten untuk proses aman; jangan mengembalikan teks mentah melalui API admin. Sistem tidak menjamin pengenalan identitas sempurna, sehingga pengujian penting.
 
 ## 7. API pengadu dan AI
 
@@ -132,16 +133,17 @@ Setiap `data` memiliki `{ "runId": "uuid", "seq": 1, ... }`. `runId` unik untuk 
 
 | Event | Payload tambahan | Tampilan frontend |
 |---|---|---|
-| `run.started` | `startedAt` | Buat bubble proses: “AI sedang memproses”. |
-| `step.started` | `toolCallId`, `step`, `label` | Tambahkan langkah berstatus berjalan, misalnya “Memahami aduan”. |
-| `step.completed` | `toolCallId`, `step`, `label` | Tandai langkah terkait selesai. |
-| `step.failed` | `toolCallId`, `step`, `label`, `retryable` | Tandai langkah gagal dengan pesan aman; agent bisa melanjutkan bila kegagalan dapat ditangani. |
+| `run.started` | `startedAt` | Tampilkan indikator loading singkat. |
+| `step.started` | `toolCallId`, `step`, `label` | Ganti teks indikator loading dengan label langkah yang sedang berjalan. |
+| `step.completed` | `toolCallId`, `step`, `label` | Hapus label langkah yang selesai; jangan simpan daftar langkah di chat. |
+| `step.failed` | `toolCallId`, `step`, `label`, `retryable` | Hapus label langkah; tampilkan error hanya bila stream berakhir dengan event `error`. |
 | `reply.delta` | `text` | Tambahkan teks ke bubble jawaban asisten secara berurutan. |
 | `draft.updated` | `draft`, `readyForConfirmation`, `missingFields` | Perbarui ringkasan draft di browser; jangan kirim laporan otomatis. |
-| `done` | `reply`, `draft`, `readyForConfirmation`, `missingFields` | Tandai giliran selesai; `reply` menjadi sumber final jika delta tidak lengkap. |
+| `complaint.created` | `submission` | Simpan receipt; laporan sudah dibuat oleh adapter server. |
+| `done` | `reply`, `draft`, `readyForConfirmation`, `missingFields`, `submission?`, `sources?` | Tandai giliran selesai; `reply` menjadi sumber final jika delta tidak lengkap. |
 | `error` | `code`, `message`, `retryable` | Tampilkan error dan opsi coba lagi bila `retryable`; event terminal. |
 
-Nilai `step` yang disarankan: `UNDERSTAND_CONTEXT`, `CHECK_COMPLAINT`, `PREPARE_DRAFT`, `CHECK_STATUS`, `SEARCH_KNOWLEDGE`. Mapping label dibuat di server; setiap tool invocation dapat menghasilkan pasangan `step.started` dan `step.completed` atau `step.failed`. Jika model tidak memanggil tool, event langkah dapat tidak ada. Status bukan uraian penalaran model dan tidak menjamin hasil tertentu.
+Nilai `step` yang disarankan: `UNDERSTAND_CONTEXT`, `CHECK_COMPLAINT`, `PREPARE_DRAFT`, `CHECK_STATUS`, `SEARCH_KNOWLEDGE`, `SUBMIT_COMPLAINT`. Mapping label dibuat di server; setiap tool invocation dapat menghasilkan pasangan `step.started` dan `step.completed` atau `step.failed`. Jika model tidak memanggil tool, event langkah dapat tidak ada. Status bukan uraian penalaran model dan tidak menjamin hasil tertentu.
 
 **Contoh respons stream**
 
@@ -177,8 +179,8 @@ data: {"runId":"run-uuid","seq":9,"reply":"Saya memahami kekhawatiran Anda. Di m
 
 **Aturan tampilan dan lifecycle**
 
-1. Saat pengguna mengirim pesan, tampilkan pesan pengguna dan panel proses yang dapat dibuka/tutup. Tampilkan label yang mudah dipahami seperti “Memahami aduan” dan “Menyiapkan ringkasan”.
-2. Render langkah berdasarkan `toolCallId`, bukan hanya nama tool. Satu tool dapat dipanggil berkali-kali dalam satu loop.
+1. Saat pengguna mengirim pesan, tampilkan pesan pengguna dan satu indikator loading sementara. Teks indikator mengikuti langkah yang sedang aktif, misalnya “Memahami aduan” lalu “Menyiapkan ringkasan”. Indikator hilang saat giliran selesai atau gagal.
+2. Pasangkan event langkah berdasarkan `toolCallId` agar label yang selesai dihapus dengan benar. Jangan tampilkan riwayat langkah atau hasil tool di percakapan.
 3. Susun `reply.delta` sesuai urutan `seq`; saat `done`, gunakan `reply` final sebagai sumber kebenaran, simpan hasil dalam state chat browser, lalu aktifkan kembali input. Gunakan `draft` pada `done` sebagai draft final.
 4. Tampilkan tombol konfirmasi hanya jika `readyForConfirmation` true, tetapi submit tetap memerlukan aksi pengadu dan validasi server. Jangan menampilkan WhatsApp dalam timeline proses; nomor hanya terlihat kepada pengadu dalam draft miliknya.
 5. Jika stream berakhir tanpa `done` atau `error`, tandai respons terputus dan tawarkan **Coba lagi**. Respons parsial diberi label belum selesai dan tidak dianggap sebagai jawaban final; percobaan baru memakai `runId` baru. MVP tidak mendukung replay/reconnect otomatis atau resume event.
@@ -193,6 +195,18 @@ event: error
 data: {"runId":"run-uuid","seq":10,"code":"AGENT_TIMEOUT","message":"AI belum dapat menyelesaikan respons. Silakan coba lagi.","retryable":true}
 
 ```
+
+### 7.1.2 Konfirmasi dan service backend pada implementasi AI
+
+Request chat juga menerima `sessionId` UUID per sesi dan `confirmed` boolean (default false). Frontend mengirim header `Idempotency-Key` UUID per giliran; retry memakai key dan snapshot payload yang sama. Header wajib ketika konfirmasi membuat laporan. Konfirmasi natural seperti "sudah" diterima hanya setelah asisten meminta pemeriksaan draft; confirmed true berasal dari tombol kirim pengadu. Draft lengkap saja tidak memicu submit.
+
+`createChatHandler(getAiServices)` memvalidasi request dan menjalankan loop. Tipe `AiServices` memuat `agent: AgentDependencies` dan callback wajib `onSubmitted(receipt, conversation)`. Service agent terdiri dari complete, submit, mainKnowledge, persona, search, dan track; tidak ada fallback data atau konfigurasi lokal. getAiServices diisi Dimas. Sebelum terhubung, request valid menghasilkan HTTP 503 JSON dengan code AI_INTEGRATION_NOT_CONFIGURED; gangguan loader service menghasilkan AI_INTEGRATION_UNAVAILABLE.
+
+Setelah konfirmasi pada draft lengkap, agent memanggil submit(draft, { sessionId, idempotencyKey }, signal). Service backend menyimpan laporan secara idempoten lalu mengembalikan receipt `{ complaintId, ticketNumber, status: "NEW", createdAt }`. Receipt tidak berisi kode akses, mode, atau WhatsApp. Callback onSubmitted menjadwalkan evaluasi; Promise callback ditunggu, sehingga backend sebaiknya hanya menunggu acknowledgement antrean. Callback gagal tidak membatalkan laporan, dan backend harus mencatat pekerjaan gagal/retry. Retry receipt dapat memanggil callback lagi; deduplikasi berdasarkan complaintId wajib.
+
+Agent mengirim complaint.created dan done.submission dengan receipt yang sama; draft akhir menjadi null dan readyForConfirmation false. Client menyimpan receipt segera, termasuk bila stream terputus sebelum done. Jika belum menerima receipt tetapi koneksi putus, retry request/key yang sama karena laporan mungkin sudah commit. Konflik idempotensi setelah stream dimulai dikirim sebagai error SSE IDEMPOTENCY_CONFLICT; endpoint REST memakai HTTP 409. Validasi sesi/key/draft sebelum stream memakai HTTP 400.
+
+Jalur chat sudah membuat laporan setelah konfirmasi. Frontend tidak memanggil POST /api/complaints lagi setelah receipt. Jika endpoint REST di bawah disediakan, endpoint itu menggunakan service bisnis yang sama untuk jalur di luar chat.
 
 ### 7.2 `POST /api/complaints`
 
@@ -222,7 +236,6 @@ Membuat laporan hanya setelah pengadu mengonfirmasi draft. Frontend mengirim hea
 {
   "data": {
     "ticketNumber": "ADU-2026-001284",
-    "accessCode": "7K9M-Q3PX",
     "status": "NEW",
     "createdAt": "2026-10-31T08:30:00Z",
     "evaluationStatus": "PENDING"
@@ -230,17 +243,17 @@ Membuat laporan hanya setelah pengadu mengonfirmasi draft. Frontend mengirim hea
 }
 ```
 
-- `confirmed` harus `true`; deskripsi dan nomor wajib. Tiket unik dan kode akses dihasilkan server; simpan hanya hash kode akses.
-- Tampilkan kode akses kepada pengadu saat berhasil dibuat. Untuk retry idempoten, hasil yang memuat kode harus tersedia sementara secara aman; tetapkan masa berlaku penyimpanan hasil, misalnya 24 jam. Setelah itu jangan mengembalikan kode asli.
+- `confirmed` harus `true`; deskripsi dan nomor WhatsApp wajib. Server menghasilkan nomor tiket unik, acak, dan sulit ditebak; pelacakan tidak menggunakan kode akses.
+- Setelah event `complaint.created`, tutup chat dan tampilkan animasi sukses serta nomor tiket yang dapat disalin. Jangan mengirim laporan kedua; simpan receipt saat diterima meskipun stream terputus sebelum `done`.
 - Aduan dan metadata pekerjaan evaluasi dicatat sebelum respons. Percakapan dikirim hanya untuk evaluasi sementara, tidak disimpan permanen. Jika evaluasi tidak dapat dijalankan karena data sementara hilang, tandai `FAILED`; laporan tetap berhasil. Lihat bagian 10 untuk batas deployment.
 - Jangan mengandalkan draft dari klien sebagai sumber tepercaya: validasi, normalisasi, dan lakukan penyamaran di server.
 
 ### 7.3 `POST /api/tracking/verify`
 
-Memverifikasi nomor tiket dan kode akses. Jangan letakkan kode akses di URL, query string, atau log.
+Mencari status berdasarkan nomor tiket saja.
 
 ```json
-{ "ticketNumber": "ADU-2026-001284", "accessCode": "7K9M-Q3PX" }
+{ "ticketNumber": "ADU-2026-001284" }
 ```
 
 **Response `200`**
@@ -259,7 +272,7 @@ Memverifikasi nomor tiket dan kode akses. Jangan letakkan kode akses di URL, que
 }
 ```
 
-Gunakan respons gagal generik untuk tiket atau kode yang salah, rate limit, dan pembandingan hash yang aman. Tidak mengembalikan nomor WhatsApp. Halaman pelacakan meminta kode saat dibuka jika belum diverifikasi; data terverifikasi dapat disimpan sementara di state browser.
+Gunakan nomor tiket acak berentropi tinggi, respons generik untuk tiket tidak ditemukan, dan rate limit. Siapa pun yang mengetahui nomor tiket dapat melihat hasil pelacakan; batasi respons pada status dan informasi yang aman untuk dibagikan. Jangan kembalikan nomor WhatsApp, identitas pelapor, atau chat mentah; lindungi URL tiket dari log dan analytics yang tidak diperlukan.
 
 ## 8. Autentikasi dan API admin
 
@@ -317,18 +330,18 @@ Mengakhiri sesi dan menghapus cookie. **Response `200`:** `{ "data": { "success"
 }
 ```
 
-Baik endpoint daftar, detail, dashboard, evaluasi maupun error **tidak boleh mengembalikan nomor WhatsApp, hash kode akses, atau chat mentah**. Gunakan pemilihan kolom/DTO eksplisit, bukan mengembalikan seluruh baris database.
+Baik endpoint daftar, detail, dashboard, evaluasi maupun error **tidak boleh mengembalikan nomor WhatsApp atau chat mentah**. Gunakan pemilihan kolom/DTO eksplisit, bukan mengembalikan seluruh baris database.
 
 ### 8.6 `POST /api/admin/complaints/[id]/updates`
 
-Gunakan `multipart/form-data` agar status dan bukti dikirim dalam satu permintaan. Header `Idempotency-Key` wajib. Untuk Vercel, batasi total body di bawah 4,5 MB termasuk overhead; file lebih besar memerlukan kontrak unggah langsung privat terpisah yang belum ditentukan dalam MVP.
+Gunakan `multipart/form-data` agar status dan bukti dikirim dalam satu permintaan. Untuk Vercel, batasi total body di bawah 4,5 MB termasuk overhead; file lebih besar memerlukan kontrak unggah langsung privat terpisah yang belum ditentukan dalam MVP.
 
 | Field | Tipe | Aturan |
 |---|---|---|
 | `status` | string | Status tujuan yang diizinkan. |
 | `note` | string | Opsional; bisa dilihat pengadu. |
 | `rejectionReason` | string | Wajib dan tidak kosong untuk `REJECTED`. |
-| `files` | file berulang | Minimal satu; foto atau PDF. |
+| `files` | file | Tepat satu JPG, PNG, WebP, atau PDF; maksimal 4 MB. |
 
 **Response `201`**
 
@@ -340,17 +353,17 @@ Gunakan `multipart/form-data` agar status dan bukti dikirim dalam satu permintaa
     "status": "ACCEPTED",
     "note": "Laporan diterima untuk ditindaklanjuti.",
     "evidence": [{ "id": "evidence-uuid", "fileName": "bukti.pdf", "mimeType": "application/pdf" }],
-    "notificationStatus": "PENDING",
+    "notificationStatus": "QUEUED",
     "createdAt": "2026-10-31T09:00:00Z"
   }
 }
 ```
 
-Server memeriksa transisi berdasarkan status saat ini dalam transaksi dan menolak perubahan serentak yang konflik dengan `409`. Validasi ukuran, jumlah dan jenis file di server, simpan dalam storage privat menggunakan nama acak, dan jangan percaya MIME dari klien saja. Jika penyimpanan bukti gagal, status tidak berubah. Buat entri notifikasi dalam transaksi yang sama dengan perubahan status. Cleanup file yang gagal dikaitkan ke transaksi.
+Server memvalidasi transisi, jenis dan ukuran berkas, mengunggah bukti ke Storage privat, menyimpan riwayat, lalu memperbarui status. Jika penyimpanan gagal, server mencoba membersihkan bukti yang telah diunggah. Setelah status tersimpan, server mencoba mengirim WhatsApp; respons `QUEUED` berarti Fonnte menerima antrean, sedangkan `FAILED` berarti pengiriman gagal tanpa membatalkan status.
 
 ### 8.7 `GET /api/admin/evidence/[id]`
 
-Hanya admin terautentikasi dapat mengakses bukti; server melakukan streaming file privat atau memberi URL bertanda tangan berumur pendek setelah pemeriksaan akses. Jangan simpan URL publik permanen.
+Admin terautentikasi dapat meminta URL bertanda tangan berumur pendek. Pengadu membuka bukti melalui route publik yang memeriksa nomor tiket dan ID bukti; objek Storage tetap privat.
 
 ### 8.8 `GET /api/admin/learning?page=1&limit=20`
 
@@ -397,11 +410,27 @@ Jika belum ada konfigurasi, kembalikan `configured: false`, `endpoint: null`, `m
 }
 ```
 
-URL harus lengkap dan model harus mendukung tool calling. Pada konfigurasi pertama, `apiKey` wajib. Pada pembaruan, `apiKey` boleh tidak dikirim atau dikirim sebagai string kosong untuk mempertahankan key yang ada. Response `200` mengembalikan bentuk aman yang sama dengan `GET`; input tidak valid mengembalikan `400`, akses tanpa sesi `401`, dan kegagalan penyimpanan mengembalikan error generik tanpa nilai sensitif. Simpan API key terenkripsi dengan kunci yang disimpan terpisah di secret server; jangan mengekspos key atau service role ke browser. Jangan menulis secret pada `.env.example`, source, atau Git.
+URL dapat berupa base URL berakhiran `/v1` atau endpoint chat completions lengkap; model harus mendukung tool calling. Pada konfigurasi pertama, `apiKey` wajib. Pada pembaruan, `apiKey` boleh tidak dikirim atau dikirim sebagai string kosong untuk mempertahankan key yang ada. Response `200` mengembalikan bentuk aman yang sama dengan `GET`; input tidak valid mengembalikan `400`, akses tanpa sesi `401`, dan kegagalan penyimpanan mengembalikan error generik tanpa nilai sensitif. Simpan API key terenkripsi dengan kunci yang disimpan terpisah di secret server; jangan mengekspos key atau service role ke browser. Jangan menulis secret pada `.env.example`, source, atau Git.
 
-Dimas menyediakan endpoint dan penyimpanan konfigurasi yang hanya dapat diakses admin. Mada menghubungkan agent ke konfigurasi server yang tersimpan; bila belum ada konfigurasi, gunakan fallback mock hanya untuk pengembangan lokal dan kembalikan error konfigurasi di production. Untuk sementara, agent menggunakan fallback mock tanpa API key; konfigurasi environment untuk provider AI tidak digunakan. Fallback ini hanya untuk pengujian lokal dan tidak boleh berpura-pura sebagai model asli. Halaman dan penyimpanan konfigurasi **belum diimplementasikan**.
+Backend memasok endpoint, model, dan API key melalui `completeWithConfig`; modul AI tidak membaca file konfigurasi dan tidak mempunyai provider default. Dimas menghubungkan penyimpanan melalui `src/lib/ai/services.ts`. Sebelum service tersedia, POST /api/chat mengembalikan HTTP 503 `AI_INTEGRATION_NOT_CONFIGURED`. API key disimpan terenkripsi dan hanya dibaca server. Halaman dan API admin **belum diimplementasikan**.
 
 Karena endpoint akan diakses server, validasi URL di backend dan terapkan kebijakan outbound untuk mencegah akses tidak sah ke jaringan internal atau metadata server, termasuk melalui redirect dan resolusi DNS. Bila perlu mendukung provider lokal saat development, gunakan pengecualian khusus lingkungan development yang dikonfigurasi secara eksplisit. Jangan melakukan request ke provider hanya karena form dibuka.
+
+### 8.10 Main Knowledge — konteks langsung untuk agent
+
+Admin dapat mengatur satu teks **Main Knowledge** melalui dashboard. Isinya dapat menjelaskan wilayah layanan, kewenangan instansi, dan informasi dasar yang sering dibutuhkan pengadu. Teks ini langsung disisipkan ke system prompt pada setiap giliran; tidak memerlukan vector search.
+
+Batas awal **3.000 karakter**, termasuk spasi dan baris baru. Frontend dan server memakai hitungan JavaScript `string.length` yang sama. Tampilkan penghitung seperti `1200/3000`; input melewati batas harus ditolak server dengan HTTP 400 dan pesan yang jelas, bukan dipotong diam-diam. Teks kosong diperbolehkan dan berarti tidak ada konteks tambahan.
+
+Kontrak yang akan diimplementasikan Dimas:
+- `GET /api/admin/ai/main-knowledge` → `{ "data": { "mainKnowledge": "...", "maxCharacters": 3000 } }`.
+- `PUT /api/admin/ai/main-knowledge` menerima `{ "mainKnowledge": "..." }`; response sukses mengembalikan bentuk yang sama.
+- Kedua endpoint wajib autentikasi admin; PUT juga memeriksa CSRF/origin. Penyimpanan menjadi tugas Dimas dan tampilan textarea beserta penghitung menjadi tugas Cahya.
+
+Validasi dan injeksi Main Knowledge sudah tersedia pada modul AI. Dimas memasok teks melalui `AgentDependencies.mainKnowledge(signal)` dari penyimpanan backend, bukan file JSON atau input pengadu. Perubahan dibaca pada giliran berikutnya.
+
+Urutan konteks: **aturan dasar → Main Knowledge → persona positif/negatif**. Main Knowledge adalah informasi rujukan dan tidak boleh mengubah kewenangan AI atau aturan dasar. Penjelasan wilayah membantu menghindari pertanyaan administrasi yang berulang, tetapi AI tetap meminta nama jalan/patokan jika lokasi kejadian belum jelas. Tidak menganggap cakupan layanan sebagai alamat kejadian otomatis.
+
 
 ## 9. Kontrak internal AI dan tools
 
@@ -412,7 +441,7 @@ Tools berikut adalah fungsi server yang dipanggil model melalui tool calling, bu
 | `analyze_conversation` | Pesan yang relevan dan draft saat ini | Konteks, informasi tersedia dan kebutuhan pengadu. |
 | `analyze_complaint` | Percakapan dan draft | Deskripsi, kategori, ringkasan, serta field wajib yang kurang. Dapat digabung dengan tool sebelumnya. |
 | `create_complaint_draft` | Data hasil analisis | `ComplaintDraft` untuk diperiksa pengadu; tidak menyimpan tiket. |
-| `get_complaint_status` | Tiket dan kode akses | Status resmi setelah verifikasi, atau error generik. |
+| `get_complaint_status` | Nomor tiket | Status resmi berdasarkan tiket, atau error generik. |
 | `search_knowledge` | Pertanyaan pencarian dan batas hasil | Potongan sumber resmi yang relevan beserta metadata sumber; dipanggil ketika agent membutuhkan informasi rujukan. |
 
 Batasi jumlah pemanggilan tool per giliran, validasi semua argumen dan output, serta tangani timeout. AI tidak diberi kredensial database atau izin status.
@@ -534,82 +563,21 @@ grant execute on function public.match_knowledge(extensions.vector, double preci
 
 `0.5` hanya nilai awal untuk diuji, bukan jaminan relevansi. HNSW dapat ditambahkan meski untuk data demo kecil pencarian biasa mungkin sudah memadai. `service_role` hanya digunakan di server dan dapat melewati RLS; jangan pernah menaruh key-nya di browser atau variabel `NEXT_PUBLIC_`.
 
-#### 2. Install dependency dan konfigurasi Next.js
+#### 2. Runtime embedding pada bagian AI
 
-```bash
-npm install @supabase/supabase-js @xenova/transformers@2.17.2
-```
+Implementasi Mada memakai `@huggingface/transformers` 3.8.1, model `Xenova/paraphrase-multilingual-MiniLM-L12-v2`, dtype `q8`, pooling mean, dan normalize true. Output tetap 384 dimensi. Runtime lama v2 diganti karena dependensi rentan. Loader berada di `src/features/knowledge/server/embedding.ts` dan memakai Promise singleton serta cache sementara.
 
-Konfigurasikan package native agar dijalankan di server:
+Package native di-load melalui Node.js runtime agar tidak memerlukan junction pada drive proyek development. Jangan memakai Edge Runtime. Uji packaging dan cold start Vercel tetap diperlukan pada tahap deployment; pengujian saat ini lokal. Versi Next.js proyek memakai cacheComponents: jangan menambahkan konfigurasi route segment yang tidak kompatibel tanpa memeriksa dokumentasi terpasang.
 
-```js
-// next.config.mjs
-const nextConfig = {
-  serverExternalPackages: ['@xenova/transformers', 'onnxruntime-node'],
-};
-export default nextConfig;
-```
-
-Isi `.env.local` di server dengan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`. Jangan commit file tersebut. Jalankan route/worker yang memakai model dengan Node.js runtime, misalnya `export const runtime = 'nodejs'`; model native ini tidak ditujukan untuk Edge Runtime.
-
-#### 3. Cara model embedding di-load
-
-Gunakan `Xenova/paraphrase-multilingual-MiniLM-L12-v2` melalui pipeline `feature-extraction`, mode quantized, lalu `pooling: 'mean'` dan `normalize: true`. Model di-load di server saat pertama kali dibutuhkan dan dipakai ulang selama proses server yang sama masih hidup. Saat cold start, file model dapat diunduh dan perlu waktu serta ruang cache; tiap instance serverless dapat memuat modelnya sendiri.
-
-Contoh loader mengikuti pola runtime `require` terisolasi dan pipeline singleton. Gunakan `@xenova/transformers` v2, seperti perintah instalasi di atas:
-
-```js
-// lib/vector/embedding.js — server saja
-import 'server-only';
-import os from 'node:os';
-import path from 'node:path';
-
-const MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
-let pipelineInstance = null;
-
-async function getPipelineInstance() {
-  if (pipelineInstance) return pipelineInstance;
-
-  const getTransformers = new Function(
-    "return typeof require !== 'undefined' ? require('@xenova/transformers') : null;",
-  );
-  const transformers = getTransformers();
-  if (!transformers?.pipeline) {
-    throw new Error('Runtime Transformers.js tidak tersedia');
-  }
-
-  transformers.env.allowLocalModels = false;
-  transformers.env.useBrowserCache = false;
-  transformers.env.cacheDir = path.join(os.tmpdir(), '.cache');
-  pipelineInstance = await transformers.pipeline('feature-extraction', MODEL, {
-    quantized: true,
-  });
-  return pipelineInstance;
-}
-
-export async function generateEmbedding(text) {
-  if (typeof text !== 'string' || !text.trim()) {
-    throw new Error('Teks embedding kosong');
-  }
-  const extractor = await getPipelineInstance();
-  const output = await extractor(text.trim(), { pooling: 'mean', normalize: true });
-  const vector = Array.from(output.data);
-  if (vector.length !== 384 || !vector.every(Number.isFinite)) {
-    throw new Error('Embedding tidak valid');
-  }
-  return vector;
-}
-```
-
-Loader ini menyimpan instance setelah loading selesai; permintaan pertama yang bersamaan masih dapat memulai lebih dari satu loading. Pola `new Function(...require...)` bergantung pada apakah `require` tersedia dalam runtime/bundling aktual: **uji di deployment Vercel**, karena tidak dijamin bekerja pada semua konfigurasi Next.js. Jika tidak tersedia, gunakan pola import server-side yang kompatibel dengan versi Next.js yang dipakai dan uji ulang. Cache `/tmp` bersifat sementara dan bisa hilang pada cold start. Jangan mengganti kegagalan model dengan vektor palsu karena hasilnya bukan kemiripan semantik; jika gagal, tampilkan pencarian tidak tersedia atau gunakan pencarian teks yang jelas ditandai.
+SQL, Supabase, dan deployment adalah pekerjaan Dimas. Modul AI menerima knowledge, Main Knowledge, tracking, submit dan persona melalui service backend. Adapter data sementara, pembacaan JSON, CLI, dan endpoint evaluasi pengujian sudah dihapus. Tidak ada pembuatan tabel/migrasi baru dalam scope Mada.
 
 #### Deploy ke Vercel Hobby
 
 1. Pastikan proyek Next.js dapat di-build, commit dan push ke repositori Git; jangan commit `.env.local` atau service role key.
 2. Buat proyek di dashboard Vercel paket **Hobby**, lalu import repositori. Vercel mendeteksi Next.js dan menggunakan perintah build proyek.
-3. Tambahkan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`, serta secret untuk AI dan WhatsApp yang dipakai, pada **Project Settings → Environment Variables**. Gunakan nama env yang konsisten di kode. Jangan beri prefix `NEXT_PUBLIC_` pada service role key. Pilih environment Preview/Production sesuai kebutuhan dan redeploy setelah perubahan.
+3. Tambahkan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`, serta secret untuk WhatsApp yang dipakai, pada **Project Settings → Environment Variables**. Gunakan nama env yang konsisten di kode. Jangan beri prefix `NEXT_PUBLIC_` pada service role key. Pilih environment Preview/Production sesuai kebutuhan dan redeploy setelah perubahan.
 4. Jalankan SQL knowledge base pada Supabase, lalu indeks dokumen resmi dengan model embedding yang sama.
-5. Pastikan route yang memanggil model memakai `export const runtime = 'nodejs'`. Bila perlu, atur `export const maxDuration = 60` pada route dan cek batas yang berlaku untuk konfigurasi Fluid Compute proyek.
+5. Gunakan runtime Node.js bawaan proyek. Karena cacheComponents aktif, jangan menambahkan deklarasi route segment `runtime`; konfigurasi tersebut tidak kompatibel pada versi Next.js proyek ini. Atur durasi function sesuai dukungan platform dan kebutuhan batas chat/evaluasi, lalu verifikasi pada deployment nyata.
 6. Deploy **Preview**, lalu uji query pertama (cold start), query berikutnya, isi hasil, sumber yang tidak tersedia, logs, dan penggunaan memori. Pastikan output dimensi 384 dan server bisa mengunduh model saat cold start. Setelah lolos, deploy ke production.
 
 **Batasan biaya dan teknis:** Vercel Hobby gratis dalam kuota dan diperuntukkan penggunaan personal/nonkomersial. Supabase Free juga memiliki kuota; ketersediaan gratis Vercel/Supabase tidak berarti layanan LLM atau WhatsApp ikut gratis. File model quantized sekitar **118 MB**, terpisah dari dependency; loading pertama bisa lambat, cache dapat hilang, dan setiap instance dapat memuat model sendiri. Memori, ukuran function, waktu eksekusi, dan kuota penggunaan perlu diverifikasi pada proyek nyata; pola ini **belum diuji deploy untuk AduAI**. Untuk unggah bukti, perhatikan batas payload Vercel Functions 4,5 MB atau gunakan unggah langsung ke storage privat dengan otorisasi. Tugas evaluasi dan notifikasi juga tidak boleh mengandalkan proses in-memory tetap berjalan setelah respons selesai.
@@ -662,36 +630,24 @@ if (error) throw error;
 
 Evaluasi harus berdasarkan percakapan, tidak membuat klaim keberhasilan yang tidak terlihat. Hasil melewati validasi bentuk, panjang, data pribadi, dan konflik dengan aturan dasar. Teks pengguna tidak boleh berubah menjadi instruksi baru secara langsung. Aturan yang lolos disimpan otomatis tanpa persetujuan admin. Jika duplikat, tidak ada prompt baru. Batasi jumlah prompt aktif yang disisipkan, misalnya 10 per jenis. Terapkan deduplikasi dan penulisan secara aman saat dua evaluasi berjalan bersamaan; pemeriksaan kemiripan tidak menjamin hasil sempurna.
 
-Urutan system prompt: **aturan dasar tetap → positive prompts aktif → negative prompts aktif**. Aturan dasar tidak bisa ditimpa persona atau isi percakapan. Ini memperbarui instruksi, bukan melatih ulang model.
+Urutan system prompt: **aturan dasar tetap → Main Knowledge → positive prompts aktif → negative prompts aktif**. Aturan dasar tidak bisa ditimpa persona atau isi percakapan. Ini memperbarui instruksi, bukan melatih ulang model.
 
 ## 11. Notifikasi WhatsApp
 
-Saat perubahan status berhasil, buat record notifikasi `PENDING` dalam transaksi yang sama. Worker membaca antrean, mengambil nomor hanya untuk pengiriman, lalu memanggil API penyedia WhatsApp. Simpan hasil `SENT` atau `FAILED`, jumlah percobaan dan ID penyedia jika tersedia. Retry memakai ID notifikasi sebagai kunci idempotensi jika penyedia mendukungnya; tanpa dukungan penyedia, pengiriman tepat sekali tidak dapat dijamin.
+AduAI menggunakan Fonnte melalui HTTP dari Next.js di Vercel. Admin menyimpan token perangkat Fonnte melalui halaman WhatsApp; token disimpan pada kolom `configuration.whatsapp_api_token` dan hanya dibaca server. Admin masuk dengan Supabase Auth dan menghubungkan perangkat melalui `/admin/pengaturan/whatsapp`; server meminta status ke `/device` dan QR ke `/qr`. Sesi WhatsApp dikelola Fonnte.
 
-Pesan berisi nomor tiket, status, catatan/alasan yang layak dibagikan, dan petunjuk pelacakan. Jangan kirim kode akses dalam URL. Konfirmasi ketersediaan akun, template, dan kemampuan penyedia WhatsApp sejak awal hackathon. `SENT` berarti diterima penyedia, bukan bukti bahwa pesan dibaca pengadu.
+Setelah aduan dibuat, server mencoba mengirim konfirmasi. Setelah perubahan status dan bukti tersimpan, server mengirim nomor tiket, status, catatan, dan tautan bukti melalui `/send`. `notificationStatus: QUEUED` berarti Fonnte menerima permintaan, belum menjamin pesan diterima; `FAILED` ditampilkan kepada admin tanpa membatalkan perubahan status. Tidak ada worker atau tabel notifikasi dalam alur ini.
+
+Bucket `evidence` bersifat privat. Route `/api/reports/[ticket]/evidence/[id]` dibentuk dari nomor tiket dan ID bukti; kolom `storage_path` menunjuk ke objek privat; server memeriksa kecocokan nomor tiket dan bukti sebelum membaca objek. Siapa pun yang mengetahui tautan tersebut dapat membuka bukti. Jangan sertakan data pribadi dalam bukti.
 
 ## 12. Skema database logis
 
-Gunakan UUID sebagai PK, timestamp UTC, FK dan indeks pada kolom pencarian. Simpan nomor WhatsApp secara terlindungi dan batasi aksesnya.
-
-| Tabel | Kolom utama |
-|---|---|
-| `admins` | `id`, `name`, `email` unik, `password_hash`, `created_at` |
-| `complaints` | `id`, `ticket_number` unik, `access_code_hash`, `reporter_whatsapp`, `description`, `category`, `ai_summary`, `status`, `created_at`, `updated_at` |
-| `complaint_updates` | `id`, `complaint_id` FK, `admin_id` FK, `status`, `note`, `rejection_reason`, `created_at` |
-| `update_evidence` | `id`, `complaint_update_id` FK, `storage_key`, `file_name`, `mime_type`, `size_bytes`, `created_at` |
-| `notifications` | `id`, `complaint_update_id` FK unik, `status`, `attempt_count`, `provider_message_id`, `created_at`, `sent_at` |
-| `ai_evaluations` | `id`, `complaint_id` FK unik, `summary`, `has_new_learning`, `status`, `created_at` |
-| `persona_prompts` | `id`, `evaluation_id` FK, `type`, `content`, `is_active`, `created_at` |
-| `ai_provider_settings` | `id`, `endpoint`, `model`, `api_key_ciphertext`, `updated_by` FK ke admin, `updated_at`; satu konfigurasi aktif |
-| `idempotency_keys` | `key`, `operation`, `request_hash`, hasil terenkripsi/terbatas, `expires_at` |
-
-Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memiliki banyak bukti dan satu notifikasi; satu evaluasi dapat menghasilkan banyak prompt. Bukti minimal satu dan alasan penolakan ditegakkan dalam transaksi aplikasi. Simpan objek file terpisah dari database; database menyimpan kunci privatnya.
+Gunakan lima tabel aplikasi: `configuration` untuk provider dan Main Knowledge; `complaint` untuk aduan, nomor tiket, status dan nomor WhatsApp privat; `knowledge` untuk pengetahuan dan vector; `ai_evaluation` untuk hasil evaluasi dan positive/negative prompt; serta `evidence` untuk satu bukti dan riwayat setiap perubahan status. Supabase Auth dan Storage dikelola layanan Supabase. Kolom `storage_path` dan `note` pada `evidence` serta token WhatsApp di `configuration` disiapkan oleh migrasi `20261101020000_whatsapp_evidence.sql`.
 
 ## 13. Kriteria penerimaan demo
 
 1. Guest dapat bercakap, menerima tanggapan empatik dan saran sementara yang relevan, lalu mengonfirmasi draft berisi aduan dan WhatsApp.
-2. Laporan tersimpan sekali, menghasilkan tiket serta kode akses; status dapat dilacak dengan keduanya.
+2. Laporan tersimpan sekali dan menghasilkan nomor tiket; status dapat dilacak menggunakan nomor tiket tersebut.
 3. Admin login dan tidak melihat nomor WhatsApp di halaman maupun respons API.
 4. Server menolak perubahan status tanpa bukti, transisi tidak sah, serta penolakan tanpa alasan.
 5. Perubahan yang valid membuat antrean WhatsApp; demo menunjukkan pesan terkirim melalui penyedia yang tersedia atau secara jelas menunjukkan status gagal jika integrasi bermasalah.
@@ -714,3 +670,20 @@ Relasi: satu laporan memiliki banyak update dan satu evaluasi; satu update memil
 
 
 
+
+
+
+
+
+
+## Panduan integrasi implementasi AI
+
+[Ringkasan tim](ai/README.md), [backend Dimas](ai/07-backend-dimas.md), dan [frontend Cahya](ai/08-frontend-cahya.md) menjelaskan kontrak kode yang sudah tersedia. Satu titik wiring backend ada di `src/lib/ai/services.ts` (`getAiServices`). Tidak ada CLI, adapter data sementara, atau pembacaan konfigurasi JSON dalam aplikasi. File JSON privat lama hanya backup, tetap diabaikan Git, dan tidak digunakan runtime. Frontend chat menggunakan SSE `POST /api/chat`; provider AI dan Supabase harus dikonfigurasi sebelum diuji. Halaman pembelajaran menampilkan evaluasi dan prompt aktif tanpa pengubahan manual.
+
+## Integrasi halaman AI
+
+- `/laporan/chat` menggunakan `POST /api/chat` melalui SSE; riwayat dan draft disimpan di browser. Konfirmasi memanggil service pembuatan laporan melalui agent, dan nomor tiket ditampilkan setelah `complaint.created`.
+- `/admin/pengaturan/ai` menyimpan endpoint, model, API key, dan Main Knowledge. `/admin/knowledge` mengelola informasi vector (judul, isi maksimal 1.500 kata, status, dan tautan sumber opsional).
+- Setiap informasi knowledge memiliki satu vector 384 dimensi yang dihitung dari rata-rata embedding potongannya. Pencarian memakai RPC `match_knowledge`, hanya untuk informasi published.
+- `/admin/pembelajaran` membaca hasil evaluasi dan prompt aktif sebagai pemantauan. Prompt baru dibuat otomatis oleh evaluation agent.
+- Evaluasi yang berjalan di latar belakang saat ini belum dijamin bertahan setelah function serverless berhenti; verifikasi perilakunya di deployment sebelum mengandalkannya.
