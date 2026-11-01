@@ -1,12 +1,10 @@
 import { successResponse } from '@/lib/api/response';
-import { clearAdminSessionCookie } from '@/lib/auth/admin-guard';
+import { getSupabaseAdmin } from '@/lib/supabase/server';
 
 export async function POST() {
-  const response = successResponse({
+  const supabase = getSupabaseAdmin();
+  await supabase.auth.signOut().catch(() => {});
+  return successResponse({
     message: 'Berhasil logout',
   });
-
-  clearAdminSessionCookie(response);
-
-  return response;
 }

@@ -1,15 +1,9 @@
-import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { runEvaluationJob } from '@/features/learning/server/runner';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
 export async function POST(req: Request) {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.authorized) {
-      return auth.response;
-    }
-
     const body = await req.json().catch(() => null);
     const complaintId = body?.complaintId;
 
@@ -28,13 +22,17 @@ export async function POST(req: Request) {
       return ApiErrors.notFound('Aduan tidak ditemukan');
     }
 
-    // Buat percakapan sintetis jika percakapan client tidak disertakan
-    const conversation = Array.isArray(body?.conversation) && body.conversation.length > 0
-      ? body.conversation
-      : [
-          { role: 'user' as const, content: comp.description },
-          { role: 'assistant' as const, content: `Terima kasih atas laporan Anda: ${comp.ai_summary}` },
-        ];
+    // Buat percakapan jika percakapan client tidak disertakan
+    const conversation =
+      Array.isArray(body?.conversation) && body.conversation.length > 0
+        ? body.conversation
+        : [
+            { role: 'user' as const, content: comp.description },
+            {
+              role: 'assistant' as const,
+              content: `Terima kasih atas laporan Anda: ${comp.ai_summary}`,
+            },
+          ];
 
     const result = await runEvaluationJob({
       complaintId: comp.id,

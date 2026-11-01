@@ -1,17 +1,10 @@
-import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { readProviderConfig, saveProviderConfig } from '@/features/admin/server/settings';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.authorized) {
-      return auth.response;
-    }
-
     const config = await readProviderConfig();
 
-    // KEAMANAN: Jangan pernah membocorkan plain API key ke frontend admin
     return successResponse({
       configured: Boolean(config.apiKey),
       endpoint: config.endpoint,
@@ -25,11 +18,6 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.authorized) {
-      return auth.response;
-    }
-
     const body = await req.json().catch(() => null);
     if (!body?.endpoint || !body?.model || !body?.apiKey) {
       return ApiErrors.badRequest('Field endpoint, model, dan apiKey wajib diisi');
@@ -39,7 +27,6 @@ export async function PUT(req: Request) {
       endpoint: body.endpoint,
       model: body.model,
       apiKey: body.apiKey,
-      adminId: auth.session.sub,
     });
 
     return successResponse({

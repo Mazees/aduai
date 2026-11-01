@@ -1,15 +1,9 @@
-import { requireAdminAuth } from '@/lib/auth/admin-guard';
 import { getMainKnowledge } from '@/features/admin/server/settings';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { successResponse, ApiErrors } from '@/lib/api/response';
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.authorized) {
-      return auth.response;
-    }
-
     const mainKnowledge = await getMainKnowledge();
     return successResponse({
       mainKnowledge,
@@ -23,11 +17,6 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.authorized) {
-      return auth.response;
-    }
-
     const body = await req.json().catch(() => null);
     const content = typeof body?.mainKnowledge === 'string' ? body.mainKnowledge.trim() : '';
 
@@ -41,7 +30,6 @@ export async function PUT(req: Request) {
       .upsert({
         id: 'default',
         main_knowledge: content,
-        updated_by: auth.session.sub,
         updated_at: new Date().toISOString(),
       });
 
